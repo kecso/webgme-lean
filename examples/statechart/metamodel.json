@@ -1,0 +1,50 @@
+{
+  "name": "StatechartDomain",
+  "rootType": "StateMachine",
+  "nodes": [
+    {
+      "name": "StateMachine",
+      "isAbstract": false,
+      "baseType": null,
+      "attributes": [
+        { "name": "name", "type": "string" }
+      ],
+      "pointers": [
+        { "name": "initialState", "targetTypes": ["State"], "min": 1, "max": 1 }
+      ],
+      "sets": [],
+      "containments": [
+        { "childType": "State", "min": 1, "max": null },
+        { "childType": "Transition", "min": 0, "max": null }
+      ]
+    },
+    {
+      "name": "State",
+      "isAbstract": false,
+      "baseType": null,
+      "attributes": [
+        { "name": "name", "type": "string" },
+        { "name": "isInitial", "type": "boolean" },
+        { "name": "isFinal", "type": "boolean" }
+      ],
+      "pointers": [],
+      "sets": [],
+      "containments": []
+    },
+    {
+      "name": "Transition",
+      "isAbstract": false,
+      "baseType": null,
+      "attributes": [
+        { "name": "event", "type": "string" },
+        { "name": "guard", "type": "string" }
+      ],
+      "pointers": [
+        { "name": "source", "targetTypes": ["State"], "min": 1, "max": 1 },
+        { "name": "target", "targetTypes": ["State"], "min": 1, "max": 1 }
+      ],
+      "sets": [],
+      "containments": []
+    }
+  ]
+}

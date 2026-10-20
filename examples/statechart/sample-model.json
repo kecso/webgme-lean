@@ -1,0 +1,109 @@
+{
+  "nodes": [
+    {
+      "id": "/root",
+      "metaType": "StateMachine",
+      "name": "TrafficLight",
+      "attributes": {
+        "name": "TrafficLight"
+      },
+      "pointers": {
+        "initialState": "/root/state1"
+      },
+      "sets": {},
+      "children": ["/root/state1", "/root/state2", "/root/state3", "/root/trans1", "/root/trans2", "/root/trans3"],
+      "parent": null
+    },
+    {
+      "id": "/root/state1",
+      "metaType": "State",
+      "name": "Red",
+      "attributes": {
+        "name": "Red",
+        "isInitial": true,
+        "isFinal": false
+      },
+      "pointers": {},
+      "sets": {},
+      "children": [],
+      "parent": "/root"
+    },
+    {
+      "id": "/root/state2",
+      "metaType": "State",
+      "name": "Green",
+      "attributes": {
+        "name": "Green",
+        "isInitial": false,
+        "isFinal": false
+      },
+      "pointers": {},
+      "sets": {},
+      "children": [],
+      "parent": "/root"
+    },
+    {
+      "id": "/root/state3",
+      "metaType": "State",
+      "name": "Yellow",
+      "attributes": {
+        "name": "Yellow",
+        "isInitial": false,
+        "isFinal": false
+      },
+      "pointers": {},
+      "sets": {},
+      "children": [],
+      "parent": "/root"
+    },
+    {
+      "id": "/root/trans1",
+      "metaType": "Transition",
+      "name": "RedToGreen",
+      "attributes": {
+        "event": "timer",
+        "guard": ""
+      },
+      "pointers": {
+        "source": "/root/state1",
+        "target": "/root/state2"
+      },
+      "sets": {},
+      "children": [],
+      "parent": "/root"
+    },
+    {
+      "id": "/root/trans2",
+      "metaType": "Transition",
+      "name": "GreenToYellow",
+      "attributes": {
+        "event": "timer",
+        "guard": ""
+      },
+      "pointers": {
+        "source": "/root/state2",
+        "target": "/root/state3"
+      },
+      "sets": {},
+      "children": [],
+      "parent": "/root"
+    },
+    {
+      "id": "/root/trans3",
+      "metaType": "Transition",
+      "name": "YellowToRed",
+      "attributes": {
+        "event": "timer",
+        "guard": ""
+      },
+      "pointers": {
+        "source": "/root/state3",
+        "target": "/root/state1"
+      },
+      "sets": {},
+      "children": [],
+      "parent": "/root"
+    }
+  ],
+  "root": "/root"
+}

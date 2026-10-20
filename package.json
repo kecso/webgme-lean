@@ -1,0 +1,49 @@
+{
+  "name": "webgme-lean",
+  "version": "0.1.0",
+  "description": "Lean-based formal verification for WebGME domain models",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts",
+    "generate-dsl": "ts-node src/cli/generate-dsl.ts",
+    "translate": "ts-node src/cli/translate.ts",
+    "verify": "ts-node src/cli/verify.ts"
+  },
+  "keywords": [
+    "webgme",
+    "lean",
+    "formal-verification",
+    "model-checking",
+    "dsl",
+    "metamodel"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.55.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "dependencies": {
+    "chevrotain": "^11.0.3"
+  },
+  "peerDependencies": {
+    "webgme": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "webgme": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

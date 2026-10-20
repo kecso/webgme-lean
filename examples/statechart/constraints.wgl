@@ -1,0 +1,60 @@
+// Statechart Domain Constraints
+// Written in the WebGME-Lean constraint language
+
+constraintset StatechartConstraints for StateMachine
+
+constraint UniqueStateNames [error]
+// Each state must have a unique name within its parent
+forall s1 in State:
+  forall s2 in State where s1.name == s2.name:
+    s1 == s2
+
+constraint InitialStateExists [error]
+// Every state machine must have exactly one initial state
+exists s in State where s.isInitial == true:
+  true
+
+constraint SingleInitialState [error]
+// At most one state can be marked as initial
+forall s1 in State where s1.isInitial == true:
+  forall s2 in State where s2.isInitial == true:
+    s1 == s2
+
+constraint InitialStateNotFinal [error]
+// An initial state cannot also be a final state
+forall s in State where s.isInitial == true:
+  s.isFinal == false
+
+constraint TransitionHasSource [error]
+// Every transition must have a source state
+forall t in Transition:
+  t.source != null
+
+constraint TransitionHasTarget [error]
+// Every transition must have a target state
+forall t in Transition:
+  t.target != null
+
+constraint NoSelfLoopOnInitial [warning]
+// Initial states should not have self-loops
+forall t in Transition:
+  forall s in State where s.isInitial == true:
+    (t.source == s and t.target == s) implies false
+
+constraint FinalStateNoOutgoing [warning]
+// Final states should not have outgoing transitions
+forall t in Transition:
+  forall s in State where s.isFinal == true:
+    t.source != s
+
+constraint AllStatesReachable [error]
+// All states should be reachable from the initial state
+forall target in State:
+  exists initial in State where initial.isInitial == true:
+    reachable(initial, target) or initial == target
+
+constraint NoDuplicateTransitions [warning]
+// No two transitions should have the same source, target, and event
+forall t1 in Transition:
+  forall t2 in Transition where t1.source == t2.source and t1.target == t2.target and t1.event == t2.event:
+    t1 == t2
