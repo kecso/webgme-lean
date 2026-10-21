@@ -17,14 +17,14 @@ export const monarchLanguage = {
   tokenPostfix: '.constraint',
 
   keywords: [
-    'constraintset', 'constraint', 'for',
+    'constraintset', 'constraint', 'for', 'define',
     'forall', 'exists', 'in', 'where',
     'implies', 'and', 'or', 'not',
     'true', 'false', 'null'
   ],
 
   functions: [
-    'count', 'isEmpty', 'isNotEmpty',
+    'count', 'isEmpty',
     'all', 'any', 'unique',
     'reachableVia', 'reachableBy', 'connected',
     'children', 'parent', 'siblings'

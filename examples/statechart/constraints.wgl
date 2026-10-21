@@ -3,6 +3,15 @@
 
 constraintset StatechartConstraints for StateMachine
 
+// Define domain-specific reachability using Transition objects
+define reachable(src, dst) = reachableVia(src, dst, Transition, "source", "target")
+
+// Define helper to check if state has outgoing transitions
+define hasOutgoing(s) = !isEmpty(s.outgoingTransitions)
+
+// Define helper to check if state has incoming transitions  
+define hasIncoming(s) = !isEmpty(s.incomingTransitions)
+
 constraint UniqueStateNames [error]
 // Each state must have a unique name within its parent
 forall s1 in State:
@@ -49,10 +58,10 @@ forall t in Transition:
 
 constraint AllStatesReachable [error]
 // All states should be reachable from the initial state
-// Reachability is via Transition objects with source/target pointers
+// Uses the domain-specific 'reachable' function defined above
 forall target in State:
   exists initial in State where initial.isInitial == true:
-    reachableVia(initial, target, Transition, "source", "target") or initial == target
+    reachable(initial, target) or initial == target
 
 constraint NoDuplicateTransitions [warning]
 // No two transitions should have the same source, target, and event

@@ -61,8 +61,7 @@ const KEYWORDS = [
 
 const FUNCTIONS = [
   { label: 'count', detail: 'Count elements', doc: 'count(collection) - Returns the number of elements', insert: 'count($1)' },
-  { label: 'isEmpty', detail: 'Check if empty', doc: 'isEmpty(collection) - True if collection has no elements', insert: 'isEmpty($1)' },
-  { label: 'isNotEmpty', detail: 'Check if non-empty', doc: 'isNotEmpty(collection) - True if collection has elements', insert: 'isNotEmpty($1)' },
+  { label: 'isEmpty', detail: 'Check if empty', doc: 'isEmpty(collection) - True if collection has no elements. Use !isEmpty(x) for non-empty check.', insert: 'isEmpty($1)' },
   { label: 'all', detail: 'Universal check', doc: 'all(collection, predicate) - True if all elements satisfy predicate', insert: 'all($1, $2)' },
   { label: 'any', detail: 'Existential check', doc: 'any(collection, predicate) - True if any element satisfies predicate', insert: 'any($1, $2)' },
   { label: 'unique', detail: 'Uniqueness check', doc: 'unique(collection, attr) - True if attribute values are unique', insert: 'unique($1, $2)' },
@@ -79,6 +78,7 @@ const NAVIGATION = [
 
 const CONSTRAINT_STRUCTURE = [
   { label: 'constraintset', detail: 'Define constraint set', doc: 'constraintset <Name> for <Type>', insert: 'constraintset ${1:Name} for ${2:Type}\n\n' },
+  { label: 'define', detail: 'Define helper function', doc: 'define name(params) = expression', insert: 'define ${1:name}(${2:param}) = ${3:expression}' },
   { label: 'constraint', detail: 'Define constraint', doc: 'constraint <Name> [severity]', insert: 'constraint ${1:Name} [${2:error}]\n// ${3:Description}\n${4:expression}' },
 ];
 

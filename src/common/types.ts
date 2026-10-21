@@ -77,7 +77,6 @@ export type ConstraintOperator =
   | 'in'
   | 'notIn'
   | 'isEmpty'
-  | 'isNotEmpty'
   | 'count'
   | 'sum'
   | 'all'
@@ -150,12 +149,21 @@ export interface Constraint {
   severity: 'error' | 'warning' | 'info';
 }
 
+export interface FunctionDefinition {
+  name: string;
+  parameters: string[];
+  body: ConstraintExpression;
+  description?: string;
+}
+
 export interface ConstraintSet {
   name: string;
   /** The model root type - constraints are evaluated per instance of this type */
   targetType: string;
   /** Scoping mode for type references (default: descendants) */
   scopeMode?: 'descendants' | 'children' | 'global';
+  /** User-defined helper functions */
+  definitions?: FunctionDefinition[];
   constraints: Constraint[];
 }
 

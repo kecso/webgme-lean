@@ -121,10 +121,19 @@ describe('Constraint Parser', () => {
       expect((result as any).function).toBe('isEmpty');
     });
 
-    it('should parse isNotEmpty', () => {
-      const result = parseConstraint('isNotEmpty(x)');
+    it('should parse negated isEmpty', () => {
+      const result = parseConstraint('!isEmpty(x)');
+      expect(result.type).toBe('unary');
+      expect((result as any).operator).toBe('not');
+      expect((result as any).operand.type).toBe('call');
+      expect((result as any).operand.function).toBe('isEmpty');
+    });
+
+    it('should parse user-defined function call', () => {
+      const result = parseConstraint('myFunction(x, y)');
       expect(result.type).toBe('call');
-      expect((result as any).function).toBe('isNotEmpty');
+      expect((result as any).function).toBe('myFunction');
+      expect((result as any).arguments.length).toBe(2);
     });
   });
 

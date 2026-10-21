@@ -306,7 +306,6 @@ export function generateDSLDocumentation(dsl: DomainDSL): string {
   lines.push('### Functions');
   lines.push('- `count(collection)`: Count elements');
   lines.push('- `isEmpty(collection)`: Check if empty');
-  lines.push('- `isNotEmpty(collection)`: Check if not empty');
   lines.push('- `all(collection, predicate)`: All satisfy predicate');
   lines.push('- `any(collection, predicate)`: Some satisfy predicate');
   lines.push('- `unique(collection, attribute)`: Attribute values are unique');

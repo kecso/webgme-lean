@@ -110,7 +110,7 @@ exists s in State: s.isInitial == true
 
 constraint AvoidDeadStates [warning]
 // Best practice: states should be reachable
-forall s in State: isNotEmpty(s.incomingTransitions) or s.isInitial == true
+forall s in State: !isEmpty(s.incomingTransitions) or s.isInitial == true
 ```
 
 ---
@@ -131,7 +131,7 @@ forall s in State: s.name != ""
 
 // Every non-final state has at least one outgoing transition
 forall s in State where s.isFinal == false:
-  isNotEmpty(s.outgoingTransitions)
+  !isEmpty(s.outgoingTransitions)
 ```
 
 ### Existential Quantifier: `exists`
@@ -253,7 +253,7 @@ forall t in Transition:
 
 // Either the state is initial, or it has incoming transitions
 forall s in State:
-  s.isInitial == true or isNotEmpty(s.incomingTransitions)
+  s.isInitial == true or !isEmpty(s.incomingTransitions)
 ```
 
 ### Understanding `implies`
@@ -371,7 +371,7 @@ isEmpty(s.tags)
 ```
 // Every state machine contains at least one state
 forall sm in StateMachine:
-  isNotEmpty(sm.children)
+  !isEmpty(sm.children)
 
 // States must be inside a state machine
 forall s in State:
@@ -393,6 +393,9 @@ count(State) >= 2
 // No more than 10 transitions from a single state
 forall s in State:
   count(s.outgoingTransitions) <= 10
+
+// isEmpty can be expressed with count
+count(collection) == 0  // same as isEmpty(collection)
 ```
 
 #### `isEmpty(collection)` — Check if empty
@@ -401,14 +404,10 @@ forall s in State:
 // Initial state has no incoming transitions
 forall s in State where s.isInitial == true:
   isEmpty(s.incomingTransitions)
-```
 
-#### `isNotEmpty(collection)` — Check if non-empty
-
-```
-// Every non-final state has outgoing transitions
+// For non-empty, use negation: !isEmpty(x) or not isEmpty(x)
 forall s in State where s.isFinal == false:
-  isNotEmpty(s.outgoingTransitions)
+  !isEmpty(s.outgoingTransitions)
 ```
 
 ### Quantifier Functions
@@ -492,6 +491,75 @@ connected(child, parent, "parent")
 | Workflow | Flow objects with from/to | `reachableVia(a, b, Flow, "from", "to")` |
 
 ---
+
+## User-Defined Functions
+
+You can define reusable helper functions to simplify your constraints and create domain-specific abstractions.
+
+### Syntax
+
+```
+define functionName(param1, param2) = expression
+```
+
+### Example: Domain-Specific Reachability
+
+Instead of writing the verbose `reachableVia` call everywhere, define a simpler function:
+
+```
+constraintset StatechartConstraints for StateMachine
+
+// Define a domain-specific reachability function
+define reachable(src, dst) = 
+  reachableVia(src, dst, Transition, "source", "target")
+
+// Now use the simpler syntax in constraints
+constraint AllStatesReachable [error]
+forall target in State:
+  exists initial in State where initial.isInitial == true:
+    reachable(initial, target) or initial == target
+```
+
+### Example: Custom Predicates
+
+```
+constraintset MyConstraints for Model
+
+// Check if a state is a "dead end" (final with no outgoing)
+define isDeadEnd(s) = s.isFinal and isEmpty(s.outgoingTransitions)
+
+// Check if a state is "isolated" (no connections at all)
+define isIsolated(s) = 
+  isEmpty(s.incomingTransitions) and isEmpty(s.outgoingTransitions)
+
+// Use in constraints
+constraint NoIsolatedNonInitialStates [error]
+forall s in State where !s.isInitial:
+  !isIsolated(s)
+```
+
+### Example: Linked List Helpers
+
+```
+constraintset LinkedListConstraints for List
+
+// Define pointer-based reachability for this domain
+define reaches(a, b) = reachableBy(a, b, "next")
+
+// Check if node is the tail (points to nothing)
+define isTail(n) = n.next == null
+
+constraint AllNodesReachableFromHead [error]
+forall node in ListNode:
+  reaches(head, node) or node == head
+```
+
+### Benefits of User-Defined Functions
+
+1. **Readability**: `reachable(a, b)` is clearer than `reachableVia(a, b, Transition, "source", "target")`
+2. **Reusability**: Define once, use in multiple constraints
+3. **Domain vocabulary**: Use terms that match your domain
+4. **Maintenance**: Change the definition in one place
 
 ## Common Patterns
 
@@ -630,6 +698,9 @@ forall t in Transition:
 ```
 constraintset <Name> for <ModelRootType>
 
+// Optional: define helper functions
+define functionName(params) = expression
+
 constraint <Name> [error|warning|info]
 // Description
 <expression>
@@ -674,14 +745,14 @@ constraint <Name> [error|warning|info]
 | Function | Description |
 |----------|-------------|
 | `count(collection)` | Number of elements |
-| `isEmpty(collection)` | True if no elements |
-| `isNotEmpty(collection)` | True if has elements |
+| `isEmpty(collection)` | True if no elements (use `!isEmpty` for non-empty) |
 | `all(collection, pred)` | All satisfy predicate |
 | `any(collection, pred)` | Some satisfy predicate |
 | `unique(collection, attr)` | Attribute values unique |
 | `reachableVia(src, tgt, Type, "srcPtr", "dstPtr")` | Path via edge objects |
 | `reachableBy(src, tgt, "ptr")` | Path via pointer chain |
 | `connected(a, b, "ptr")` | Direct connection check |
+| `userDefined(args)` | Call user-defined function |
 
 ### Literals
 

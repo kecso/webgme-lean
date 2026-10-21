@@ -138,7 +138,6 @@ forall e in Element where e.active == true: e.value > 0
 |----------|-------------|
 | `count(collection)` | Number of elements |
 | `isEmpty(collection)` | Check if empty |
-| `isNotEmpty(collection)` | Check if non-empty |
 | `all(collection, predicate)` | Universal quantification |
 | `any(collection, predicate)` | Existential quantification |
 | `unique(collection, attr)` | Attribute uniqueness |

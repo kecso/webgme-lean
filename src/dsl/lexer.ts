@@ -20,7 +20,7 @@ export const True = createToken({ name: 'True', pattern: /true/ });
 export const False = createToken({ name: 'False', pattern: /false/ });
 export const Null = createToken({ name: 'Null', pattern: /null/ });
 export const IsEmpty = createToken({ name: 'IsEmpty', pattern: /isEmpty/ });
-export const IsNotEmpty = createToken({ name: 'IsNotEmpty', pattern: /isNotEmpty/ });
+export const Define = createToken({ name: 'Define', pattern: /define/ });
 export const Count = createToken({ name: 'Count', pattern: /count/ });
 export const Sum = createToken({ name: 'Sum', pattern: /sum/ });
 export const All = createToken({ name: 'All', pattern: /all/ });
@@ -42,6 +42,7 @@ export const LessThan = createToken({ name: 'LessThan', pattern: /</ });
 export const GreaterThan = createToken({ name: 'GreaterThan', pattern: />/ });
 export const Arrow = createToken({ name: 'Arrow', pattern: /->/ });
 export const DoubleArrow = createToken({ name: 'DoubleArrow', pattern: /=>/ });
+export const Assign = createToken({ name: 'Assign', pattern: /=(?!=)/ });
 
 // Punctuation
 export const Dot = createToken({ name: 'Dot', pattern: /\./ });
@@ -100,6 +101,7 @@ const baseTokens: TokenType[] = [
   GreaterOrEqual,
   DoubleArrow,
   Arrow,
+  Assign,
   
   // Single-char operators
   LessThan,
@@ -135,7 +137,7 @@ const baseTokens: TokenType[] = [
   False,
   Null,
   IsEmpty,
-  IsNotEmpty,
+  Define,
   Count,
   Sum,
   All,

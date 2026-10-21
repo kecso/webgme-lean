@@ -16,7 +16,8 @@ import {
   SetExpr,
   LiteralExpr,
   VariableExpr,
-  CallExpr
+  CallExpr,
+  FunctionDefinition
 } from '../common/types';
 
 export class ConstraintParser extends CstParser {
@@ -109,11 +110,11 @@ export class ConstraintParser extends CstParser {
       { ALT: () => this.CONSUME(L.All) },
       { ALT: () => this.CONSUME(L.Any) },
       { ALT: () => this.CONSUME(L.IsEmpty) },
-      { ALT: () => this.CONSUME(L.IsNotEmpty) },
       { ALT: () => this.CONSUME(L.Unique) },
       { ALT: () => this.CONSUME(L.ReachableVia) },
       { ALT: () => this.CONSUME(L.ReachableBy) },
-      { ALT: () => this.CONSUME(L.Connected) }
+      { ALT: () => this.CONSUME(L.Connected) },
+      { ALT: () => this.CONSUME(L.Identifier) }
     ]);
     this.CONSUME(L.LParen);
     this.SUBRULE(this.argumentList);
@@ -333,11 +334,11 @@ export class ConstraintVisitor {
     else if (children.All) functionName = 'all';
     else if (children.Any) functionName = 'any';
     else if (children.IsEmpty) functionName = 'isEmpty';
-    else if (children.IsNotEmpty) functionName = 'isNotEmpty';
     else if (children.Unique) functionName = 'unique';
     else if (children.ReachableVia) functionName = 'reachableVia';
     else if (children.ReachableBy) functionName = 'reachableBy';
     else if (children.Connected) functionName = 'connected';
+    else if (children.Identifier) functionName = (children.Identifier as IToken[])[0].image;
     else throw new Error('Unknown function');
 
     const args: ConstraintExpression[] = [];
@@ -452,4 +453,24 @@ export function parseConstraint(input: string): ConstraintExpression {
   
   const visitor = new ConstraintVisitor();
   return visitor.visit(cst);
+}
+
+/**
+ * Parse a function definition
+ * Syntax: define name(param1, param2) = expression
+ */
+export function parseFunctionDefinition(input: string): FunctionDefinition {
+  const match = input.match(/^define\s+(\w+)\s*\(\s*([^)]*)\s*\)\s*=\s*(.+)$/s);
+  if (!match) {
+    throw new Error('Invalid function definition syntax. Expected: define name(params) = expression');
+  }
+
+  const name = match[1];
+  const paramsStr = match[2].trim();
+  const bodyStr = match[3].trim();
+
+  const parameters = paramsStr ? paramsStr.split(',').map(p => p.trim()) : [];
+  const body = parseConstraint(bodyStr);
+
+  return { name, parameters, body };
 }

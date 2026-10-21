@@ -15,7 +15,8 @@ import {
   VariableExpr,
   CallExpr,
   Constraint,
-  ConstraintSet
+  ConstraintSet,
+  FunctionDefinition
 } from '../common/types';
 import { DomainDSL, TypeDefinition } from '../generator/dsl-generator';
 
@@ -72,6 +73,15 @@ export function translateConstraintSet(
   lines.push(`def modelRootType : String := "${constraintSet.targetType}"`);
   lines.push('');
 
+  if (constraintSet.definitions && constraintSet.definitions.length > 0) {
+    lines.push('/-- User-defined helper functions -/');
+    lines.push('');
+    for (const def of constraintSet.definitions) {
+      lines.push(translateFunctionDefinition(def, ctx));
+      lines.push('');
+    }
+  }
+
   for (const constraint of constraintSet.constraints) {
     lines.push(translateConstraint(constraint, ctx));
     lines.push('');
@@ -80,6 +90,32 @@ export function translateConstraintSet(
   lines.push(generateVerificationFunction(constraintSet, ctx));
   lines.push('');
   lines.push(`end ${sanitizeIdentifier(constraintSet.name)}`);
+
+  return lines.join('\n');
+}
+
+/**
+ * Translate a user-defined function to Lean
+ */
+export function translateFunctionDefinition(
+  def: FunctionDefinition,
+  ctx: TranslationContext
+): string {
+  const lines: string[] = [];
+  const safeName = sanitizeIdentifier(def.name);
+  const params = def.parameters.map(p => `(${sanitizeIdentifier(p)} : Node)`).join(' ');
+  
+  const newScope = new Map(ctx.currentScope);
+  for (const param of def.parameters) {
+    newScope.set(param, sanitizeIdentifier(param));
+  }
+  const innerCtx = { ...ctx, currentScope: newScope };
+
+  if (def.description) {
+    lines.push(`/-- ${def.description} -/`);
+  }
+  lines.push(`def ${safeName} (m : Model) ${params} : Bool :=`);
+  lines.push(`  ${translateExpression(def.body, innerCtx)}`);
 
   return lines.join('\n');
 }
@@ -240,8 +276,6 @@ function translateCall(expr: CallExpr, ctx: TranslationContext): string {
       return `(${args[0]}).length`;
     case 'isEmpty':
       return `(${args[0]}).isEmpty`;
-    case 'isNotEmpty':
-      return `!(${args[0]}).isEmpty`;
     case 'all':
       if (args.length >= 2) {
         return `(${args[0]}).all (${args[1]})`;
@@ -256,20 +290,18 @@ function translateCall(expr: CallExpr, ctx: TranslationContext): string {
       return `Cardinality.attributeUnique (${args[0]}) "${args[1] || 'name'}"`;
     case 'reachableVia':
       // reachableVia(source, target, ConnectionType, "srcPtr", "dstPtr")
-      // Reachability via edge objects (like Transitions)
       if (args.length >= 5) {
         return `Graph.isReachableVia m (${args[0]}) (${args[1]}) "${args[2]}" "${args[3]}" "${args[4]}"`;
       }
       return `Graph.isReachableVia m (${args[0]}) (${args[1]}) "Connection" "source" "target"`;
     case 'reachableBy':
       // reachableBy(source, target, "pointerName")
-      // Reachability via direct pointer chains (like next)
       if (args.length >= 3) {
         return `Graph.isReachableBy m (${args[0]}) (${args[1]}) "${args[2]}"`;
       }
       return `Graph.isReachableBy m (${args[0]}) (${args[1]}) "next"`;
     case 'connected':
-      // connected(a, b, "pointerName") - direct connection check
+      // connected(a, b, "pointerName")
       if (args.length >= 3) {
         return `Graph.isConnected (${args[0]}) (${args[1]}) "${args[2]}"`;
       }
@@ -281,7 +313,9 @@ function translateCall(expr: CallExpr, ctx: TranslationContext): string {
     case 'siblings':
       return `Graph.getSiblings m (${args[0]})`;
     default:
-      return `${expr.function}(${args.join(', ')})`;
+      // User-defined function call
+      const safeName = sanitizeIdentifier(expr.function);
+      return `${safeName} m ${args.join(' ')}`;
   }
 }
 
