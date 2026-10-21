@@ -27,6 +27,15 @@ export interface TranslationContext {
 
 /**
  * Translate a constraint set to Lean code
+ * 
+ * ## Scoping
+ * 
+ * The `targetType` (e.g., StateMachine) defines the "model root".
+ * All type references within constraints are scoped to descendants
+ * of the current model instance being verified.
+ * 
+ * For example, `forall s in State` means "for all State nodes that
+ * are descendants of the current StateMachine instance".
  */
 export function translateConstraintSet(
   constraintSet: ConstraintSet,
@@ -39,10 +48,16 @@ export function translateConstraintSet(
     indentLevel: 0
   };
 
+  const scopeMode = constraintSet.scopeMode || 'descendants';
+
   lines.push('/-!');
   lines.push(`# Constraints for ${constraintSet.name}`);
   lines.push('');
-  lines.push(`Target type: ${constraintSet.targetType}`);
+  lines.push(`Model root type: ${constraintSet.targetType}`);
+  lines.push(`Scope: ${scopeMode} (type references are scoped to ${scopeMode} of each ${constraintSet.targetType} instance)`);
+  lines.push('');
+  lines.push('When a project contains multiple model instances (e.g., multiple StateMachines),');
+  lines.push('these constraints are evaluated separately for each instance.');
   lines.push('-/');
   lines.push('');
   lines.push('import WebGMELean');
@@ -52,6 +67,9 @@ export function translateConstraintSet(
   lines.push('');
   lines.push('open WebGMELean');
   lines.push('open Domain');
+  lines.push('');
+  lines.push(`/-- The model root type for scoping -/`);
+  lines.push(`def modelRootType : String := "${constraintSet.targetType}"`);
   lines.push('');
 
   for (const constraint of constraintSet.constraints) {

@@ -47,12 +47,52 @@ This constraint says: "For every State `s` in the model, the `name` attribute mu
 Every constraint file follows this structure:
 
 ```
-constraintset <Name> for <RootType>
+constraintset <Name> for <ModelRootType>
 
 constraint <ConstraintName> [severity]
 // Optional description comment
 <expression>
 ```
+
+### Understanding Scope: The `for` Clause
+
+The `for <ModelRootType>` clause is crucial—it defines what constitutes a **model instance**.
+
+**The Problem:** A WebGME project might contain:
+- The language definition (metamodel)
+- Multiple model instances (e.g., `TrafficLightStatechart`, `ElevatorStatechart`)
+
+When you write `forall s in State`, which States do you mean?
+
+**The Solution:** The `for` clause scopes all type references:
+
+```
+constraintset StatechartConstraints for StateMachine
+```
+
+This means:
+1. Find all `StateMachine` instances in the project
+2. For each `StateMachine`, evaluate constraints where `State` means "States within THIS StateMachine"
+3. Report violations per model instance
+
+**Example:**
+```
+Project
+├── TrafficLightStatechart (StateMachine)
+│   ├── Red (State)
+│   ├── Yellow (State)
+│   └── Green (State)
+└── ElevatorStatechart (StateMachine)
+    ├── Idle (State)
+    ├── MovingUp (State)
+    └── MovingDown (State)
+```
+
+With constraints scoped `for StateMachine`:
+- `forall s in State` in `TrafficLightStatechart` → checks Red, Yellow, Green
+- `forall s in State` in `ElevatorStatechart` → checks Idle, MovingUp, MovingDown
+
+Each model instance is verified independently!
 
 ### Severity Levels
 
@@ -535,12 +575,23 @@ forall t in Transition:
 ### Constraint Syntax
 
 ```
-constraintset <Name> for <Type>
+constraintset <Name> for <ModelRootType>
 
 constraint <Name> [error|warning|info]
 // Description
 <expression>
 ```
+
+### Scoping Rules
+
+| Element | Scope |
+|---------|-------|
+| `constraintset X for Y` | `Y` is the model root type; constraints apply per `Y` instance |
+| `forall x in Type` | `Type` refers to descendants of current model root |
+| `exists x in Type` | `Type` refers to descendants of current model root |
+| `count(Type)` | Counts instances within current model root |
+
+**Key insight:** All type references are automatically scoped to the current model instance. You never need to manually filter "States in this StateMachine"—that's implicit.
 
 ### Expressions
 

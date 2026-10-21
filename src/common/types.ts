@@ -152,7 +152,10 @@ export interface Constraint {
 
 export interface ConstraintSet {
   name: string;
+  /** The model root type - constraints are evaluated per instance of this type */
   targetType: string;
+  /** Scoping mode for type references (default: descendants) */
+  scopeMode?: 'descendants' | 'children' | 'global';
   constraints: Constraint[];
 }
 
