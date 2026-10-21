@@ -29,10 +29,20 @@ export interface MetaContainment {
   max: number | null;
 }
 
+/**
+ * Represents a node type in the WebGME metamodel.
+ * 
+ * TODO: Missing WebGME meta language features:
+ * - mixins: string[] - Multiple inheritance mechanism where mixins provide rules only
+ *   (like interfaces in other languages). Base provides rules + data + structure,
+ *   while mixins only provide rules that instances must implement.
+ * - Global containment cardinality rules (cross-cutting containment constraints)
+ */
 export interface MetaNode {
   name: string;
   isAbstract: boolean;
   baseType: string | null;
+  /** TODO: Add mixins: string[] for interface-like multiple inheritance */
   attributes: MetaAttribute[];
   pointers: MetaPointer[];
   sets: MetaSet[];

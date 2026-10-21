@@ -3,6 +3,14 @@
  * 
  * Generates LLM-friendly context from a domain DSL to help
  * the model understand the available types, attributes, and syntax.
+ * 
+ * TODO: WebGME meta language features not yet fully captured:
+ * - Mixins: Multiple inheritance mechanism where mixins provide rules only
+ *   (like interfaces), while base types provide rules + data + structure
+ * - Set cardinality: Sets have min/max cardinality constraints
+ * - Global containment cardinality: Cross-cutting containment rules
+ * 
+ * These should be added to DomainDSL and reflected in the context generation.
  */
 
 import { DomainDSL, TypeDefinition } from '../generator/dsl-generator';
@@ -37,7 +45,7 @@ This domain has the following types: ${typeNames}
 
 The constraint language uses first-order logic with quantifiers (forall, exists) and supports:
 - Navigation through attributes (node.attrName)
-- Navigation through pointers (node->ptrName or node.ptrName)
+- Navigation through pointers (node->ptrName) - use arrow notation to avoid ambiguity with attributes
 - Navigation through sets (node[setName])
 - Logical operators (and, or, not, implies)
 - Comparison operators (==, !=, <, <=, >, >=)
@@ -83,11 +91,14 @@ exists <var> in <Type> [where <condition>]: <body>
 
 ### Navigation
 - Attribute: \`node.attributeName\` (e.g., \`state.name\`)
-- Pointer: \`node->pointerName\` or \`node.pointerName\` (e.g., \`transition->source\`)
+- Pointer: \`node->pointerName\` (e.g., \`transition->source\`) - always use arrow notation
 - Set: \`node[setName]\` (e.g., \`container[members]\`)
 - Children: \`node.children\`
 - Parent: \`node.parent\`
 - Siblings: \`node.siblings\`
+
+Note: Dot notation (.) is reserved for attributes only. Use arrow notation (->) for pointers
+to avoid ambiguity when attribute and pointer names might clash.
 
 ### Built-in Functions
 - \`count(collection)\` - Number of elements

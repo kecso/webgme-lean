@@ -151,8 +151,8 @@ forall e in Element where e.active == true: e.value > 0
 
 ```
 node.attributeName    // Access attribute
-node.pointerName      // Follow pointer
-node.setName          // Access set members
+node->pointerName     // Follow pointer (use arrow to avoid ambiguity with attributes)
+node[setName]         // Access set members
 node.children         // Get child nodes
 node.parent           // Get parent node
 node.siblings         // Get sibling nodes
