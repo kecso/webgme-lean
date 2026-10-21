@@ -42,6 +42,10 @@ WebGME is a powerful tool for creating domain-specific modeling languages. While
 - **`src/dsl/`** - Parser for the constraint language
 - **`src/translator/`** - Translates parsed constraints to Lean code
 - **`src/plugin/`** - WebGME plugin for integrated verification
+- **`src/nl/`** - Natural language translation (NL↔DSL) with LLM integration
+- **`src/mcp/`** - MCP server for AI agent integration (gmebot)
+- **`src/router/`** - WebGME REST router for constraint services
+- **`src/visualizer/`** - Enhanced constraint editor with AI assistance
 
 ## Quick Start
 
@@ -147,8 +151,8 @@ forall e in Element where e.active == true: e.value > 0
 
 ```
 node.attributeName    // Access attribute
-node.pointerName      // Follow pointer
-node.setName          // Access set members
+node->pointerName     // Follow pointer (use arrow to avoid ambiguity with attributes)
+node[setName]         // Access set members
 node.children         // Get child nodes
 node.parent           // Get parent node
 node.siblings         // Get sibling nodes
@@ -413,11 +417,186 @@ const leanCode = translateConstraintSet(constraintSet, domainDSL);
 - **[Constraint Tutorial](docs/constraint-tutorial.md)** — Complete guide to writing constraints with examples
 - **[DSL Reference](#constraint-language)** — Quick reference for the constraint language
 
+## AI-Powered Constraint Authoring
+
+webgme-lean now includes AI-powered features for natural language constraint authoring and explanation.
+
+### Natural Language to Constraint Translation
+
+Write constraints in plain English and get valid DSL code:
+
+```typescript
+import { NLConstraintTranslator } from 'webgme-lean';
+
+const translator = new NLConstraintTranslator({
+  domainDSL: myDomainDSL,
+  llmProvider: myLLMProvider  // Optional: for advanced translation
+});
+
+// Template-based translation (no LLM required)
+const result = translator.generateTemplate('Every state must have a unique name');
+// Returns: constraint UniqueStateName [error]
+//          forall s1 in State:
+//            forall s2 in State where s1.name == s2.name:
+//              s1 == s2
+
+// LLM-based translation (requires LLM provider)
+const advancedResult = await translator.translate(
+  'All transitions from final states should be forbidden'
+);
+```
+
+### Constraint Explanation
+
+Get natural language explanations of existing constraints:
+
+```typescript
+import { ConstraintExplainer } from 'webgme-lean';
+
+const explainer = new ConstraintExplainer({
+  domainDSL: myDomainDSL
+});
+
+const explanation = await explainer.explainConstraintBlock(`
+constraint SingleInitialState [error]
+forall s1 in State where s1.isInitial == true:
+  forall s2 in State where s2.isInitial == true:
+    s1 == s2
+`);
+
+// Returns:
+// {
+//   summary: "Every state must have a unique name",
+//   explanation: "No two states can share the same name attribute",
+//   severity: "error",
+//   examples: { valid: [...], invalid: [...] }
+// }
+```
+
+### MCP Server for gmebot Integration
+
+The MCP (Model Context Protocol) server exposes constraint tools for AI agents like gmebot:
+
+```typescript
+import { ConstraintMCPServer } from 'webgme-lean';
+
+const server = new ConstraintMCPServer({
+  metamodel: myMetamodel,
+  llmProvider: myLLMProvider  // Optional
+});
+
+// Available tools:
+// - translate_constraint: NL → DSL translation
+// - explain_constraint: DSL → NL explanation
+// - validate_constraint: Syntax validation
+// - get_domain_info: Domain type information
+// - get_constraint_syntax: Language reference
+// - generate_constraint_template: Pattern-based templates
+```
+
+#### Using with gmebot
+
+The MCP server can be mounted in a WebGME application to enable gmebot to:
+
+1. Help users write constraints in natural language
+2. Explain existing constraints 
+3. Validate constraint syntax
+4. Provide domain-aware suggestions
+
+```typescript
+// In your WebGME server setup
+import { createMCPHandler } from 'webgme-lean';
+
+const mcpHandler = createMCPHandler({
+  metamodel: projectMetamodel,
+  llmProvider: openaiProvider
+});
+
+// Expose as endpoint for gmebot
+app.post('/api/constraints/mcp', mcpHandler.expressMiddleware());
+```
+
+### WebGME REST Router
+
+For HTTP-based integration, use the constraint router:
+
+```typescript
+import { createConstraintRouter } from 'webgme-lean';
+
+const router = createConstraintRouter({
+  metamodel: myMetamodel,
+  basePath: '/api/constraints'
+});
+
+// Available endpoints:
+// POST /api/constraints/translate  - NL → DSL
+// POST /api/constraints/explain    - DSL → NL
+// POST /api/constraints/validate   - Validation
+// GET  /api/constraints/domain     - Type info
+// GET  /api/constraints/syntax     - Reference
+// POST /api/constraints/mcp        - MCP JSON-RPC
+
+// Mount in Express
+app.use(router.middleware());
+
+// Or get WebGME router config
+const webgmeConfig = router.webgmeRouterConfig();
+```
+
+### Enhanced Constraint Editor
+
+The Constraint Editor visualizer now includes AI assistance features:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ Constraint Editor   [Save] [Format] [Verify] | [AI Assist] [Explain]│
+├─────────────────────────────────────────────────────────────────────┤
+│                           │ AI Constraint Assistant               │
+│  1 │ // Domain Constraints│ ┌─────────────────────────────────┐ │
+│  2 │ constraintset ...    │ │ [Translate] [Explain]            │ │
+│  3 │                      │ │                                  │ │
+│  4 │ constraint Unique... │ │ Describe your constraint:        │ │
+│  5 │ forall s1 in State:  │ │ ┌──────────────────────────────┐ │ │
+│  6 │   forall s2 in ...   │ │ │ Every state must have a      │ │ │
+│  7 │     s1 == s2         │ │ │ unique name                  │ │ │
+│                           │ │ └──────────────────────────────┘ │ │
+│                           │ │ [Generate Constraint]            │ │
+│                           │ └─────────────────────────────────┘ │
+├─────────────────────────────────────────────────────────────────────┤
+│ No issues                                                           │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+Features:
+- **AI Assist Button**: Opens a side panel for natural language input
+- **Explain Button**: Explains selected constraint in plain English
+- **Pattern Matching**: Works without LLM for common constraint patterns
+- **LLM Integration**: Optional advanced translation with any LLM provider
+
+#### Configuring AI in the Widget
+
+```typescript
+import ConstraintEditorWidget from 'webgme-lean';
+
+const widget = new ConstraintEditorWidget(container, {
+  logger: myLogger,
+  client: webgmeClient,
+  aiConfig: {
+    enabled: true,
+    apiEndpoint: '/api/constraints',  // REST API endpoint
+    // OR
+    llmProvider: myLLMProvider        // Direct LLM access
+  }
+});
+```
+
 ## Roadmap
 
-- [ ] Interactive constraint editor with syntax highlighting
+- [x] Interactive constraint editor with syntax highlighting
+- [x] AI-powered natural language constraint authoring
+- [x] MCP server for gmebot integration
+- [x] REST API for constraint services
 - [ ] Lean proof automation for common patterns
-- [ ] Integration with WebGME constraint UI
 - [ ] Support for temporal constraints
 - [ ] Model repair suggestions
 

@@ -77,3 +77,46 @@ export {
   ConstraintEditorWidget,
   ConstraintEditorControl
 } from './visualizer/ConstraintEditor';
+
+// NL Translation module
+export {
+  NLConstraintTranslator,
+  TranslationConfig,
+  TranslationResult,
+  LLMProvider
+} from './nl/nl-translator';
+
+export {
+  ConstraintExplainer,
+  ExplanationConfig,
+  ExplanationResult
+} from './nl/constraint-explainer';
+
+export {
+  createDomainContext
+} from './nl/domain-context';
+
+// MCP Server for gmebot integration
+export {
+  ConstraintMCPServer,
+  MCPServerConfig,
+  MCPTool,
+  MCPToolCall,
+  MCPToolResult
+} from './mcp/constraint-mcp-server';
+
+export {
+  createMCPHandler,
+  createStdioServer,
+  MCPHandlerConfig,
+  MCPRequest,
+  MCPResponse
+} from './mcp/mcp-handler';
+
+// WebGME Router
+export {
+  ConstraintRouter,
+  createConstraintRouter,
+  RouterConfig,
+  RouterContext
+} from './router/constraint-router';
