@@ -409,6 +409,11 @@ import { translateConstraintSet } from 'webgme-lean';
 const leanCode = translateConstraintSet(constraintSet, domainDSL);
 ```
 
+## Documentation
+
+- **[Constraint Tutorial](docs/constraint-tutorial.md)** — Complete guide to writing constraints with examples
+- **[DSL Reference](#constraint-language)** — Quick reference for the constraint language
+
 ## Roadmap
 
 - [ ] Interactive constraint editor with syntax highlighting
