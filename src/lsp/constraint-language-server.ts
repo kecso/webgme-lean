@@ -68,6 +68,7 @@ const FUNCTIONS = [
   { label: 'reachableVia', detail: 'Reachability via edge objects', doc: 'reachableVia(src, tgt, ConnType, "srcPtr", "dstPtr") - Path exists through connection objects (e.g., Transitions)', insert: 'reachableVia($1, $2, ${3:Transition}, "${4:source}", "${5:target}")' },
   { label: 'reachableBy', detail: 'Reachability via pointer chain', doc: 'reachableBy(src, tgt, "ptrName") - Path exists following direct pointers (e.g., next)', insert: 'reachableBy($1, $2, "${3:next}")' },
   { label: 'connected', detail: 'Direct connection check', doc: 'connected(a, b, "ptrName") - True if a directly points to b', insert: 'connected($1, $2, "${3:target}")' },
+  { label: 'pointingTo', detail: 'Inverse navigation', doc: 'pointingTo(node, Type, "ptrName") - Find all nodes of Type whose ptrName points to node. Returns a collection for use with count/isEmpty.', insert: 'pointingTo($1, ${2:Type}, "${3:target}")' },
 ];
 
 const NAVIGATION = [

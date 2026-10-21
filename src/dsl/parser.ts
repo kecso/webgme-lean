@@ -114,6 +114,7 @@ export class ConstraintParser extends CstParser {
       { ALT: () => this.CONSUME(L.ReachableVia) },
       { ALT: () => this.CONSUME(L.ReachableBy) },
       { ALT: () => this.CONSUME(L.Connected) },
+      { ALT: () => this.CONSUME(L.PointingTo) },
       { ALT: () => this.CONSUME(L.Identifier) }
     ]);
     this.CONSUME(L.LParen);
@@ -338,6 +339,7 @@ export class ConstraintVisitor {
     else if (children.ReachableVia) functionName = 'reachableVia';
     else if (children.ReachableBy) functionName = 'reachableBy';
     else if (children.Connected) functionName = 'connected';
+    else if (children.PointingTo) functionName = 'pointingTo';
     else if (children.Identifier) functionName = (children.Identifier as IToken[])[0].image;
     else throw new Error('Unknown function');
 

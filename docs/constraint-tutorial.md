@@ -481,6 +481,24 @@ connected(t.source, t.target, "next")
 connected(child, parent, "parent")
 ```
 
+#### `pointingTo(node, Type, "ptrName")` — Inverse navigation
+
+Find all nodes of a type where a pointer points TO a given node. Returns a collection.
+
+This is essential for "reverse" relationships. For example, a State doesn't have an `outgoingTransitions` attribute, but we can find transitions pointing FROM a state:
+
+```
+// Find all Transitions where 'source' pointer points to state s
+pointingTo(s, Transition, "source")  // returns list of outgoing transitions
+
+// Find all Transitions where 'target' pointer points to state s  
+pointingTo(s, Transition, "target")  // returns list of incoming transitions
+
+// Use with isEmpty/count
+!isEmpty(pointingTo(s, Transition, "source"))  // has outgoing transitions?
+count(pointingTo(s, Transition, "target")) >= 2  // at least 2 incoming?
+```
+
 **Why domain-specific?** Different domains have different connectivity patterns:
 
 | Domain | Pattern | Function to Use |
@@ -523,14 +541,20 @@ forall target in State:
 ### Example: Custom Predicates
 
 ```
-constraintset MyConstraints for Model
+constraintset StatechartConstraints for StateMachine
+
+// Use pointingTo for inverse navigation (State doesn't have transition attributes!)
+// Outgoing transitions = Transitions where 'source' points to this state
+define outgoing(s) = pointingTo(s, Transition, "source")
+
+// Incoming transitions = Transitions where 'target' points to this state
+define incoming(s) = pointingTo(s, Transition, "target")
 
 // Check if a state is a "dead end" (final with no outgoing)
-define isDeadEnd(s) = s.isFinal and isEmpty(s.outgoingTransitions)
+define isDeadEnd(s) = s.isFinal and isEmpty(outgoing(s))
 
 // Check if a state is "isolated" (no connections at all)
-define isIsolated(s) = 
-  isEmpty(s.incomingTransitions) and isEmpty(s.outgoingTransitions)
+define isIsolated(s) = isEmpty(incoming(s)) and isEmpty(outgoing(s))
 
 // Use in constraints
 constraint NoIsolatedNonInitialStates [error]
@@ -752,6 +776,7 @@ constraint <Name> [error|warning|info]
 | `reachableVia(src, tgt, Type, "srcPtr", "dstPtr")` | Path via edge objects |
 | `reachableBy(src, tgt, "ptr")` | Path via pointer chain |
 | `connected(a, b, "ptr")` | Direct connection check |
+| `pointingTo(node, Type, "ptr")` | Inverse navigation (find nodes pointing to) |
 | `userDefined(args)` | Call user-defined function |
 
 ### Literals

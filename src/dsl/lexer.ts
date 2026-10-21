@@ -31,6 +31,7 @@ export const Siblings = createToken({ name: 'Siblings', pattern: /siblings/ });
 export const ReachableVia = createToken({ name: 'ReachableVia', pattern: /reachableVia/ });
 export const ReachableBy = createToken({ name: 'ReachableBy', pattern: /reachableBy/ });
 export const Connected = createToken({ name: 'Connected', pattern: /connected/ });
+export const PointingTo = createToken({ name: 'PointingTo', pattern: /pointingTo/ });
 export const Unique = createToken({ name: 'Unique', pattern: /unique/ });
 
 // Operators
@@ -148,6 +149,7 @@ const baseTokens: TokenType[] = [
   ReachableVia,
   ReachableBy,
   Connected,
+  PointingTo,
   Unique,
   
   // Identifier last

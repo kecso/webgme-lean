@@ -26,7 +26,7 @@ export const monarchLanguage = {
   functions: [
     'count', 'isEmpty',
     'all', 'any', 'unique',
-    'reachableVia', 'reachableBy', 'connected',
+    'reachableVia', 'reachableBy', 'connected', 'pointingTo',
     'children', 'parent', 'siblings'
   ],
 

@@ -6,11 +6,14 @@ constraintset StatechartConstraints for StateMachine
 // Define domain-specific reachability using Transition objects
 define reachable(src, dst) = reachableVia(src, dst, Transition, "source", "target")
 
-// Define helper to check if state has outgoing transitions
-define hasOutgoing(s) = !isEmpty(s.outgoingTransitions)
+// Inverse navigation: find transitions pointing to/from a state
+// pointingTo(node, Type, "ptrName") returns all nodes of Type where ptrName points to node
+//
+// outgoingTransitions: Transitions where 'source' points to this state
+define hasOutgoing(s) = !isEmpty(pointingTo(s, Transition, "source"))
 
-// Define helper to check if state has incoming transitions  
-define hasIncoming(s) = !isEmpty(s.incomingTransitions)
+// incomingTransitions: Transitions where 'target' points to this state
+define hasIncoming(s) = !isEmpty(pointingTo(s, Transition, "target"))
 
 constraint UniqueStateNames [error]
 // Each state must have a unique name within its parent

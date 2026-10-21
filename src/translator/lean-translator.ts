@@ -306,6 +306,13 @@ function translateCall(expr: CallExpr, ctx: TranslationContext): string {
         return `Graph.isConnected (${args[0]}) (${args[1]}) "${args[2]}"`;
       }
       return `(${args[0]}).getPointer "target" == some (${args[1]}).id`;
+    case 'pointingTo':
+      // pointingTo(targetNode, Type, "ptrName") - find all nodes of Type whose ptrName points to targetNode
+      // Returns a list of nodes (for use with count, isEmpty, etc.)
+      if (args.length >= 3) {
+        return `(m.getNodesByType "${args[1]}").filter (fun n => n.getPointer "${args[2]}" == some (${args[0]}).id)`;
+      }
+      return `(m.nodes).filter (fun n => n.getPointer "target" == some (${args[0]}).id)`;
     case 'children':
       return `(${args[0]}).children.filterMap m.getNode`;
     case 'parent':
