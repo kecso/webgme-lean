@@ -254,8 +254,26 @@ function translateCall(expr: CallExpr, ctx: TranslationContext): string {
       return `(${args[0]}).any (fun _ => true)`;
     case 'unique':
       return `Cardinality.attributeUnique (${args[0]}) "${args[1] || 'name'}"`;
-    case 'reachable':
-      return `Graph.isReachable (Graph.extractPointerEdges m) (${args[0]}) (${args[1]})`;
+    case 'reachableVia':
+      // reachableVia(source, target, ConnectionType, "srcPtr", "dstPtr")
+      // Reachability via edge objects (like Transitions)
+      if (args.length >= 5) {
+        return `Graph.isReachableVia m (${args[0]}) (${args[1]}) "${args[2]}" "${args[3]}" "${args[4]}"`;
+      }
+      return `Graph.isReachableVia m (${args[0]}) (${args[1]}) "Connection" "source" "target"`;
+    case 'reachableBy':
+      // reachableBy(source, target, "pointerName")
+      // Reachability via direct pointer chains (like next)
+      if (args.length >= 3) {
+        return `Graph.isReachableBy m (${args[0]}) (${args[1]}) "${args[2]}"`;
+      }
+      return `Graph.isReachableBy m (${args[0]}) (${args[1]}) "next"`;
+    case 'connected':
+      // connected(a, b, "pointerName") - direct connection check
+      if (args.length >= 3) {
+        return `Graph.isConnected (${args[0]}) (${args[1]}) "${args[2]}"`;
+      }
+      return `(${args[0]}).getPointer "target" == some (${args[1]}).id`;
     case 'children':
       return `(${args[0]}).children.filterMap m.getNode`;
     case 'parent':

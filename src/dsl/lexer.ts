@@ -15,7 +15,7 @@ export const Where = createToken({ name: 'Where', pattern: /where/ });
 export const Implies = createToken({ name: 'Implies', pattern: /implies/ });
 export const And = createToken({ name: 'And', pattern: /and/ });
 export const Or = createToken({ name: 'Or', pattern: /or/ });
-export const Not = createToken({ name: 'Not', pattern: /not/ });
+export const Not = createToken({ name: 'Not', pattern: /not|!/ });
 export const True = createToken({ name: 'True', pattern: /true/ });
 export const False = createToken({ name: 'False', pattern: /false/ });
 export const Null = createToken({ name: 'Null', pattern: /null/ });
@@ -28,7 +28,9 @@ export const Any = createToken({ name: 'Any', pattern: /any/ });
 export const Children = createToken({ name: 'Children', pattern: /children/ });
 export const Parent = createToken({ name: 'Parent', pattern: /parent/ });
 export const Siblings = createToken({ name: 'Siblings', pattern: /siblings/ });
-export const Reachable = createToken({ name: 'Reachable', pattern: /reachable/ });
+export const ReachableVia = createToken({ name: 'ReachableVia', pattern: /reachableVia/ });
+export const ReachableBy = createToken({ name: 'ReachableBy', pattern: /reachableBy/ });
+export const Connected = createToken({ name: 'Connected', pattern: /connected/ });
 export const Unique = createToken({ name: 'Unique', pattern: /unique/ });
 
 // Operators
@@ -141,7 +143,9 @@ const baseTokens: TokenType[] = [
   Children,
   Parent,
   Siblings,
-  Reachable,
+  ReachableVia,
+  ReachableBy,
+  Connected,
   Unique,
   
   // Identifier last

@@ -49,9 +49,10 @@ forall t in Transition:
 
 constraint AllStatesReachable [error]
 // All states should be reachable from the initial state
+// Reachability is via Transition objects with source/target pointers
 forall target in State:
   exists initial in State where initial.isInitial == true:
-    reachable(initial, target) or initial == target
+    reachableVia(initial, target, Transition, "source", "target") or initial == target
 
 constraint NoDuplicateTransitions [warning]
 // No two transitions should have the same source, target, and event

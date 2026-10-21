@@ -215,8 +215,22 @@ forall s1 in State where s1.isInitial == true:
 |----------|---------|---------|
 | `and` | Both must be true | `a and b` |
 | `or` | At least one must be true | `a or b` |
-| `not` | Negation | `not a` |
+| `not` or `!` | Negation | `not a` or `!a` |
 | `implies` | If-then (implication) | `a implies b` |
+
+### Negation with `not` (or `!`)
+
+The negation operator inverts a boolean expression. Both `not` and `!` work:
+
+```
+// These are equivalent:
+not s.isInitial
+!s.isInitial
+
+// Negate complex expressions with parentheses:
+not (a and b)
+!(a or b)
+```
 
 ### Examples
 
@@ -224,6 +238,10 @@ forall s1 in State where s1.isInitial == true:
 // A state cannot be both initial and final
 forall s in State:
   not (s.isInitial == true and s.isFinal == true)
+
+// Using ! syntax
+forall s in State:
+  !(s.isInitial and s.isFinal)
 
 // Equivalent using implies:
 forall s in State:
@@ -424,19 +442,54 @@ forall s in State:
 
 ### Graph Functions
 
-#### `reachable(source, target)` — Check if path exists
+Reachability depends on your domain's connectivity pattern. We provide domain-aware functions:
+
+#### `reachableVia(source, target, ConnectionType, "srcPtr", "dstPtr")` — Via edge objects
+
+Use when connectivity is through explicit connection objects (like Transitions).
 
 ```
-// All states are reachable from initial state
+// Reachability in a Statechart (via Transition objects)
+// Transition has 'source' and 'target' pointers
 forall target in State:
   exists initial in State where initial.isInitial == true:
-    reachable(initial, target) or initial == target
-
-// Final states are reachable from initial
-forall final in State where final.isFinal == true:
-  exists initial in State where initial.isInitial == true:
-    reachable(initial, final)
+    reachableVia(initial, target, Transition, "source", "target") or initial == target
 ```
+
+#### `reachableBy(source, target, "pointerName")` — Via direct pointer chains
+
+Use when nodes point directly to each other (like a linked list).
+
+```
+// Reachability in a linked list (via 'next' pointer)
+forall node in ListNode:
+  reachableBy(head, node, "next") or node == head
+
+// Tree traversal via 'parent' pointer
+forall child in TreeNode:
+  reachableBy(child, root, "parent") or child == root
+```
+
+#### `connected(a, b, "pointerName")` — Direct connection check
+
+Check if one node directly points to another.
+
+```
+// Check if transition goes from A to B
+connected(t.source, t.target, "next")
+
+// Check direct parent relationship
+connected(child, parent, "parent")
+```
+
+**Why domain-specific?** Different domains have different connectivity patterns:
+
+| Domain | Pattern | Function to Use |
+|--------|---------|-----------------|
+| Statechart | Transition objects with src/dst | `reachableVia(a, b, Transition, "source", "target")` |
+| Linked List | Direct `next` pointer | `reachableBy(a, b, "next")` |
+| Tree | Direct `parent` pointer | `reachableBy(a, b, "parent")` |
+| Workflow | Flow objects with from/to | `reachableVia(a, b, Flow, "from", "to")` |
 
 ---
 
@@ -626,7 +679,9 @@ constraint <Name> [error|warning|info]
 | `all(collection, pred)` | All satisfy predicate |
 | `any(collection, pred)` | Some satisfy predicate |
 | `unique(collection, attr)` | Attribute values unique |
-| `reachable(src, tgt)` | Path exists in graph |
+| `reachableVia(src, tgt, Type, "srcPtr", "dstPtr")` | Path via edge objects |
+| `reachableBy(src, tgt, "ptr")` | Path via pointer chain |
+| `connected(a, b, "ptr")` | Direct connection check |
 
 ### Literals
 
@@ -718,15 +773,16 @@ exists s in State: s.isFinal == true
 
 constraint AllStatesReachable [error]
 // Every state must be reachable from the initial state
+// Uses reachableVia because connectivity is through Transition objects
 forall target in State:
   exists initial in State where initial.isInitial == true:
-    reachable(initial, target) or initial == target
+    reachableVia(initial, target, Transition, "source", "target") or initial == target
 
 constraint FinalStatesReachable [error]
 // All final states must be reachable
 forall final in State where final.isFinal == true:
   exists initial in State where initial.isInitial == true:
-    reachable(initial, final)
+    reachableVia(initial, final, Transition, "source", "target")
 
 //=============================================================================
 // TRANSITION CONSTRAINTS

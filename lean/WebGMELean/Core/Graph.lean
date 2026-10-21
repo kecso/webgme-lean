@@ -54,9 +54,37 @@ partial def reachable (edges : List Edge) (start : NodeId) : List NodeId :=
         go (n :: visited) (rest ++ neighbors)
   go [] [start]
 
-/-- Check if target is reachable from source -/
+/-- Check if target is reachable from source using given edges -/
 def isReachable (edges : List Edge) (src : NodeId) (tgt : NodeId) : Bool :=
   (reachable edges src).contains tgt
+
+/-- Extract edges from connection objects (e.g., Transitions with source/target pointers) -/
+def extractConnectionEdges (m : Model) (connType : String) (srcPtr : String) (dstPtr : String) : List Edge :=
+  m.nodes.filter (fun n => n.metaType == connType) |>.filterMap fun conn =>
+    match conn.getPointer srcPtr, conn.getPointer dstPtr with
+    | some src, some dst => some { source := src, target := dst, label := connType }
+    | _, _ => none
+
+/-- Check reachability via connection objects (e.g., Transitions) -/
+def isReachableVia (m : Model) (src : NodeId) (tgt : NodeId) (connType : String) (srcPtr : String) (dstPtr : String) : Bool :=
+  let edges := extractConnectionEdges m connType srcPtr dstPtr
+  isReachable edges src tgt
+
+/-- Extract edges from direct pointer chains (e.g., node.next) -/
+def extractPointerChainEdges (m : Model) (ptrName : String) : List Edge :=
+  m.nodes.filterMap fun n =>
+    match n.getPointer ptrName with
+    | some target => some { source := n.id, target := target, label := ptrName }
+    | none => none
+
+/-- Check reachability via direct pointer chains (e.g., following "next" pointers) -/
+def isReachableBy (m : Model) (src : NodeId) (tgt : NodeId) (ptrName : String) : Bool :=
+  let edges := extractPointerChainEdges m ptrName
+  isReachable edges src tgt
+
+/-- Check if two nodes are directly connected via a pointer -/
+def isConnected (n1 : Node) (n2 : Node) (ptrName : String) : Bool :=
+  n1.getPointer ptrName == some n2.id
 
 /-- Check for cycles starting from a node -/
 def hasCycle (edges : List Edge) (start : NodeId) : Bool :=

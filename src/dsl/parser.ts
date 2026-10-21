@@ -111,7 +111,9 @@ export class ConstraintParser extends CstParser {
       { ALT: () => this.CONSUME(L.IsEmpty) },
       { ALT: () => this.CONSUME(L.IsNotEmpty) },
       { ALT: () => this.CONSUME(L.Unique) },
-      { ALT: () => this.CONSUME(L.Reachable) }
+      { ALT: () => this.CONSUME(L.ReachableVia) },
+      { ALT: () => this.CONSUME(L.ReachableBy) },
+      { ALT: () => this.CONSUME(L.Connected) }
     ]);
     this.CONSUME(L.LParen);
     this.SUBRULE(this.argumentList);
@@ -333,7 +335,9 @@ export class ConstraintVisitor {
     else if (children.IsEmpty) functionName = 'isEmpty';
     else if (children.IsNotEmpty) functionName = 'isNotEmpty';
     else if (children.Unique) functionName = 'unique';
-    else if (children.Reachable) functionName = 'reachable';
+    else if (children.ReachableVia) functionName = 'reachableVia';
+    else if (children.ReachableBy) functionName = 'reachableBy';
+    else if (children.Connected) functionName = 'connected';
     else throw new Error('Unknown function');
 
     const args: ConstraintExpression[] = [];
