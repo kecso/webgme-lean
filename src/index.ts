@@ -53,3 +53,27 @@ export {
   VerificationPlugin,
   PluginConfig 
 } from './plugin/VerificationPlugin';
+
+export {
+  ConstraintLanguageServer,
+  Diagnostic,
+  CompletionItem,
+  HoverInfo
+} from './lsp/constraint-language-server';
+
+export {
+  registerConstraintLanguage,
+  createCompletionProvider,
+  createHoverProvider,
+  LANGUAGE_ID,
+  monarchLanguage,
+  languageConfiguration,
+  darkTheme,
+  lightTheme
+} from './visualizer/monaco-config';
+
+export {
+  ConstraintEditor,
+  ConstraintEditorWidget,
+  ConstraintEditorControl
+} from './visualizer/ConstraintEditor';

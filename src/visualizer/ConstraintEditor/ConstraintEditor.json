@@ -1,0 +1,48 @@
+{
+  "id": "ConstraintEditor",
+  "name": "Constraint Editor",
+  "description": "Monaco-based editor for domain constraints with language server support",
+  "version": "0.1.0",
+  "panel": {
+    "widget": "ConstraintEditorWidget",
+    "control": "ConstraintEditorControl"
+  },
+  "features": [
+    "Syntax highlighting for constraint language",
+    "Autocompletion with domain-specific keywords",
+    "Real-time validation",
+    "Hover documentation",
+    "Auto-save to registry"
+  ],
+  "configStructure": {
+    "theme": {
+      "type": "string",
+      "displayName": "Editor Theme",
+      "description": "Color theme for the editor",
+      "enum": ["dark", "light"],
+      "default": "dark"
+    },
+    "autoSave": {
+      "type": "boolean",
+      "displayName": "Auto Save",
+      "description": "Automatically save constraints after editing",
+      "default": true
+    },
+    "autoSaveDelay": {
+      "type": "integer",
+      "displayName": "Auto Save Delay (ms)",
+      "description": "Delay before auto-saving",
+      "default": 2000,
+      "minValue": 500,
+      "maxValue": 10000
+    },
+    "fontSize": {
+      "type": "integer",
+      "displayName": "Font Size",
+      "description": "Editor font size in pixels",
+      "default": 14,
+      "minValue": 10,
+      "maxValue": 24
+    }
+  }
+}

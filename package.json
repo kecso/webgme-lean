@@ -36,10 +36,14 @@
     "chevrotain": "^11.0.3"
   },
   "peerDependencies": {
-    "webgme": "^2.0.0"
+    "webgme": "^2.0.0",
+    "monaco-editor": "^0.45.0"
   },
   "peerDependenciesMeta": {
     "webgme": {
+      "optional": true
+    },
+    "monaco-editor": {
       "optional": true
     }
   },

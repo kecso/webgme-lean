@@ -223,6 +223,64 @@ Options:
   --json            Output report as JSON
 ```
 
+## Constraint Editor Visualizer
+
+The project includes a full-featured WebGME visualizer with Monaco Editor (VS Code's editor component) for writing constraints.
+
+### Features
+
+- **Syntax Highlighting** - Domain-aware highlighting for keywords, types, and operators
+- **Autocompletion** - Context-aware suggestions including:
+  - Domain types from your metamodel
+  - Attribute and pointer names
+  - Built-in functions and keywords
+- **Real-time Validation** - Instant error checking as you type
+- **Hover Documentation** - Hover over types and keywords for documentation
+- **Auto-save** - Constraints are automatically saved to the registry
+
+### Installation
+
+1. Copy `src/visualizer/ConstraintEditor` to your WebGME project's `src/visualizers/`
+2. Install Monaco Editor:
+   ```bash
+   npm install monaco-editor
+   ```
+3. Register the visualizer in your WebGME config:
+   ```javascript
+   {
+     "visualization": {
+       "visualizerDescriptors": ["./src/visualizers/ConstraintEditor/ConstraintEditor.json"]
+     }
+   }
+   ```
+
+### Storage
+
+Constraints are stored as a **registry item** named `constraints` at the project root (or FCO). This allows:
+- Persistence across sessions
+- Version control with the model
+- Easy export/import
+
+### Screenshot
+
+The editor provides a VS Code-like experience:
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Constraint Editor          [Save] [Format] [Verify]         │
+├─────────────────────────────────────────────────────────────┤
+│  1 │ // Domain Constraints                                  │
+│  2 │ constraintset StatechartConstraints for StateMachine   │
+│  3 │                                                        │
+│  4 │ constraint UniqueStateNames [error]                    │
+│  5 │ // Each state must have a unique name                  │
+│  6 │ forall s1 in State:                                    │
+│  7 │   forall s2 in State where s1.name == s2.name:         │
+│  8 │     s1 == s2                                           │
+├─────────────────────────────────────────────────────────────┤
+│ No issues                                                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
 ## WebGME Plugin
 
 ### Installation
