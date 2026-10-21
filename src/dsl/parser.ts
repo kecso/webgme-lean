@@ -135,12 +135,31 @@ export class ConstraintParser extends CstParser {
   private memberAccessExpr = this.RULE('memberAccessExpr', () => {
     this.CONSUME(L.Identifier, { LABEL: 'base' });
     this.MANY(() => {
-      this.CONSUME(L.Dot);
       this.OR([
-        { ALT: () => this.CONSUME(L.Children) },
-        { ALT: () => this.CONSUME(L.Parent) },
-        { ALT: () => this.CONSUME(L.Siblings) },
-        { ALT: () => this.CONSUME2(L.Identifier, { LABEL: 'member' }) }
+        {
+          ALT: () => {
+            this.CONSUME(L.Dot);
+            this.OR2([
+              { ALT: () => this.CONSUME(L.Children) },
+              { ALT: () => this.CONSUME(L.Parent) },
+              { ALT: () => this.CONSUME(L.Siblings) },
+              { ALT: () => this.CONSUME2(L.Identifier, { LABEL: 'attrMember' }) }
+            ]);
+          }
+        },
+        {
+          ALT: () => {
+            this.CONSUME(L.Arrow);
+            this.CONSUME3(L.Identifier, { LABEL: 'ptrMember' });
+          }
+        },
+        {
+          ALT: () => {
+            this.CONSUME(L.LBracket);
+            this.CONSUME4(L.Identifier, { LABEL: 'setMember' });
+            this.CONSUME(L.RBracket);
+          }
+        }
       ]);
     });
   });
@@ -367,17 +386,40 @@ export class ConstraintVisitor {
       name: base
     } as VariableExpr;
     
-    if (children.member) {
-      for (const member of children.member as IToken[]) {
-        const memberName = member.image;
+    // Handle attribute access with .
+    if (children.attrMember) {
+      for (const member of children.attrMember as IToken[]) {
         result = {
           type: 'attribute',
-          target: (result as VariableExpr).name,
-          attribute: memberName
+          target: result,
+          attribute: member.image
         } as AttributeExpr;
       }
     }
     
+    // Handle pointer access with ->
+    if (children.ptrMember) {
+      for (const member of children.ptrMember as IToken[]) {
+        result = {
+          type: 'pointer',
+          target: result,
+          pointer: member.image
+        } as PointerExpr;
+      }
+    }
+    
+    // Handle set access with [name]
+    if (children.setMember) {
+      for (const member of children.setMember as IToken[]) {
+        result = {
+          type: 'set',
+          target: result,
+          setName: member.image
+        } as SetExpr;
+      }
+    }
+    
+    // Handle navigation functions
     if (children.Children) {
       result = {
         type: 'call',

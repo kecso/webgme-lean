@@ -106,6 +106,18 @@ describe('Constraint Parser', () => {
       expect(result.type).toBe('quantifier');
       expect((result as any).condition).toBeDefined();
     });
+
+    it('should parse pointer access with ->', () => {
+      const result = parseConstraint('t->source');
+      expect(result.type).toBe('pointer');
+      expect((result as any).pointer).toBe('source');
+    });
+
+    it('should parse set access with []', () => {
+      const result = parseConstraint('node[members]');
+      expect(result.type).toBe('set');
+      expect((result as any).setName).toBe('members');
+    });
   });
 
   describe('Function calls', () => {

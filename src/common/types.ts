@@ -110,19 +110,19 @@ export interface UnaryExpr extends ConstraintExpression {
 
 export interface AttributeExpr extends ConstraintExpression {
   type: 'attribute';
-  target: string;
+  target: ConstraintExpression;
   attribute: string;
 }
 
 export interface PointerExpr extends ConstraintExpression {
   type: 'pointer';
-  target: string;
+  target: ConstraintExpression;
   pointer: string;
 }
 
 export interface SetExpr extends ConstraintExpression {
   type: 'set';
-  target: string;
+  target: ConstraintExpression;
   setName: string;
 }
 

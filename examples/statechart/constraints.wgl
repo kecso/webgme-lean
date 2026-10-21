@@ -1,5 +1,10 @@
 // Statechart Domain Constraints
 // Written in the WebGME-Lean constraint language
+//
+// Syntax for accessing node properties:
+//   node.attrName   - attribute access
+//   node->ptrName   - pointer access  
+//   node[setName]   - set access
 
 constraintset StatechartConstraints for StateMachine
 
@@ -38,26 +43,26 @@ forall s in State where s.isInitial == true:
   s.isFinal == false
 
 constraint TransitionHasSource [error]
-// Every transition must have a source state
+// Every transition must have a source state (-> for pointer access)
 forall t in Transition:
-  t.source != null
+  t->source != null
 
 constraint TransitionHasTarget [error]
-// Every transition must have a target state
+// Every transition must have a target state (-> for pointer access)
 forall t in Transition:
-  t.target != null
+  t->target != null
 
 constraint NoSelfLoopOnInitial [warning]
 // Initial states should not have self-loops
 forall t in Transition:
   forall s in State where s.isInitial == true:
-    (t.source == s and t.target == s) implies false
+    (t->source == s and t->target == s) implies false
 
 constraint FinalStateNoOutgoing [warning]
 // Final states should not have outgoing transitions
 forall t in Transition:
   forall s in State where s.isFinal == true:
-    t.source != s
+    t->source != s
 
 constraint AllStatesReachable [error]
 // All states should be reachable from the initial state
@@ -68,6 +73,7 @@ forall target in State:
 
 constraint NoDuplicateTransitions [warning]
 // No two transitions should have the same source, target, and event
+// Note: source/target are pointers (->), event is an attribute (.)
 forall t1 in Transition:
-  forall t2 in Transition where t1.source == t2.source and t1.target == t2.target and t1.event == t2.event:
+  forall t2 in Transition where t1->source == t2->source and t1->target == t2->target and t1.event == t2.event:
     t1 == t2

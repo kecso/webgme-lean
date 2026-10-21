@@ -11,6 +11,8 @@ import {
   BinaryExpr,
   UnaryExpr,
   AttributeExpr,
+  PointerExpr,
+  SetExpr,
   LiteralExpr,
   VariableExpr,
   CallExpr,
@@ -162,6 +164,10 @@ export function translateExpression(
       return translateUnary(expr as UnaryExpr, ctx);
     case 'attribute':
       return translateAttribute(expr as AttributeExpr, ctx);
+    case 'pointer':
+      return translatePointer(expr as PointerExpr, ctx);
+    case 'set':
+      return translateSet(expr as SetExpr, ctx);
     case 'literal':
       return translateLiteral(expr as LiteralExpr);
     case 'variable':
@@ -241,8 +247,18 @@ function translateUnary(expr: UnaryExpr, ctx: TranslationContext): string {
 }
 
 function translateAttribute(expr: AttributeExpr, ctx: TranslationContext): string {
-  const target = ctx.currentScope.get(expr.target) || expr.target;
-  return `${target}.getAttribute "${expr.attribute}"`;
+  const target = translateExpression(expr.target, ctx);
+  return `(${target}).getAttribute "${expr.attribute}"`;
+}
+
+function translatePointer(expr: PointerExpr, ctx: TranslationContext): string {
+  const target = translateExpression(expr.target, ctx);
+  return `(${target}).getPointer "${expr.pointer}"`;
+}
+
+function translateSet(expr: SetExpr, ctx: TranslationContext): string {
+  const target = translateExpression(expr.target, ctx);
+  return `(${target}).getSetMembers "${expr.setName}"`;
 }
 
 function translateLiteral(expr: LiteralExpr): string {

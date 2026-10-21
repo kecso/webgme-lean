@@ -184,7 +184,7 @@ forall target in State:
 
 // For every transition, there exists a valid source state
 forall t in Transition:
-  exists s in State: t.source == s
+  exists s in State: t->source == s
 ```
 
 ### Expressing "Exactly One" with Quantifiers
@@ -249,7 +249,7 @@ forall s in State:
 
 // A transition must have both source and target set
 forall t in Transition:
-  t.source != null and t.target != null
+  t->source != null and t->target != null
 
 // Either the state is initial, or it has incoming transitions
 forall s in State:
@@ -310,7 +310,7 @@ s.timeout <= 1000
 s.retryCount >= 1 and s.retryCount <= 5
 
 // Null checks
-t.source != null
+t->source != null
 t.guard == null
 
 // Membership
@@ -321,43 +321,72 @@ s in someCollection
 
 ## Navigation: Accessing Properties
 
-### Attributes
+WebGME nodes have three types of properties, each with distinct syntax:
 
-Access attributes with dot notation:
+| Type | Syntax | Returns |
+|------|--------|---------|
+| Attribute | `node.attrName` | Value (string, int, bool, etc.) |
+| Pointer | `node->ptrName` | Referenced node (or null) |
+| Set | `node[setName]` | Collection of nodes |
+
+### Attributes (dot `.`)
+
+Access attribute values:
 
 ```
 node.attributeName
 
 // Examples
-s.name
-s.isInitial
-t.event
-t.guard
+s.name            // string attribute
+s.isInitial       // boolean attribute
+t.event           // string attribute
+t.guard           // string attribute
 ```
 
-### Pointers
+### Pointers (arrow `->`)
 
-Pointers return the referenced node (or null):
+Follow pointer references to other nodes:
 
 ```
-node.pointerName
+node->pointerName
 
 // Examples
-t.source          // The source state of a transition
-t.target          // The target state of a transition
-sm.initialState   // The initial state of a state machine
+t->source          // The source state of a transition
+t->target          // The target state of a transition
+sm->initialState   // The initial state of a state machine
+
+// Null checks
+t->source != null  // Pointer is set
+t->target == null  // Pointer is not set
 ```
 
-### Sets
+### Sets (brackets `[]`)
 
-Sets return collections of nodes:
+Access set members (collections):
 
 ```
-node.setName
+node[setName]
 
-// Example: if State had a set called "tags"
-count(s.tags)
-isEmpty(s.tags)
+// Examples - if State had a set called "tags"
+count(s[tags])
+isEmpty(s[tags])
+
+// With inverse navigation
+isEmpty(pointingTo(s, Transition, "source"))  // outgoing transitions
+```
+
+### Why Different Syntax?
+
+Names can collide! A node might have:
+- An attribute named `target`
+- A pointer named `target`
+- A set named `target`
+
+Distinct syntax prevents ambiguity:
+```
+node.target     // the attribute
+node->target    // the pointer
+node[target]    // the set
 ```
 
 ### Structural Navigation
@@ -475,7 +504,7 @@ Check if one node directly points to another.
 
 ```
 // Check if transition goes from A to B
-connected(t.source, t.target, "next")
+connected(t->source, t->target, "next")
 
 // Check direct parent relationship
 connected(child, parent, "parent")
@@ -645,7 +674,7 @@ forall s1 in State where s1.isInitial == true:
 ```
 constraint TransitionsHaveEndpoints [error]
 forall t in Transition:
-  t.source != null and t.target != null
+  t->source != null and t->target != null
 ```
 
 ### Pattern 6: Type Constraints on Pointers
@@ -656,7 +685,7 @@ forall t in Transition:
 // The initialState must actually be marked as initial
 constraint InitialStateIsValid [error]
 forall sm in StateMachine:
-  sm.initialState != null implies sm.initialState.isInitial == true
+  sm->initialState != null implies sm->initialState.isInitial == true
 ```
 
 ### Pattern 7: No Cycles (for certain structures)
@@ -668,7 +697,7 @@ forall sm in StateMachine:
 constraint NoSelfLoopOnInitial [warning]
 forall t in Transition:
   forall s in State where s.isInitial == true:
-    not (t.source == s and t.target == s)
+    not (t->source == s and t->target == s)
 ```
 
 ### Pattern 8: Conditional Requirements
@@ -709,8 +738,8 @@ forall s in State:
 ```
 // If t goes from A to B, then B should be reachable from A
 forall t in Transition:
-  t.source != null and t.target != null implies
-    reachable(t.source, t.target)
+  t->source != null and t->target != null implies
+    reachable(t->source, t->target)
 ```
 
 ---
@@ -757,9 +786,9 @@ constraint <Name> [error|warning|info]
 | `a != b` | Inequality |
 | `a < b`, `a <= b`, `a > b`, `a >= b` | Comparisons |
 | `x in collection` | Membership |
-| `node.attr` | Attribute access |
-| `node.ptr` | Pointer access |
-| `node.setName` | Set access |
+| `node.attr` | Attribute access (values) |
+| `node->ptr` | Pointer access (references) |
+| `node[set]` | Set access (collections) |
 | `node.children` | Child nodes |
 | `node.parent` | Parent node |
 | `node.siblings` | Sibling nodes |
@@ -828,7 +857,7 @@ forall s in State: s.name != ""
 constraint TransitionsHaveEndpoints [error]
 // Every transition must have both source and target
 forall t in Transition:
-  t.source != null and t.target != null
+  t->source != null and t->target != null
 
 //=============================================================================
 // INITIAL STATE CONSTRAINTS
