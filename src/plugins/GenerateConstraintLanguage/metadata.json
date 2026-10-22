@@ -1,0 +1,15 @@
+{
+  "id": "GenerateConstraintLanguage",
+  "name": "GenerateConstraintLanguage",
+  "version": "0.1.0",
+  "description": "Traverse the META of the loaded project and generate a constraint language server from it.",
+  "icon": {
+    "class": "glyphicon glyphicon-cog",
+    "src": ""
+  },
+  "disableServerSideExecution": false,
+  "disableBrowserSideExecution": true,
+  "dependencies": [],
+  "writeAccessRequired": false,
+  "configStructure": []
+}

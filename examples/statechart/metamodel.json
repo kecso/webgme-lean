@@ -1,32 +1,54 @@
 {
   "name": "StatechartDomain",
-  "rootType": "StateMachine",
+  "rootType": "StateChart",
   "nodes": [
     {
-      "name": "StateMachine",
-      "isAbstract": false,
+      "name": "FCO",
+      "isAbstract": true,
       "baseType": null,
       "attributes": [
         { "name": "name", "type": "string" }
       ],
-      "pointers": [
-        { "name": "initialState", "targetTypes": ["State"], "min": 1, "max": 1 }
-      ],
+      "pointers": [],
+      "sets": [],
+      "containments": []
+    },
+    {
+      "name": "StateChart",
+      "isAbstract": false,
+      "baseType": "FCO",
+      "attributes": [],
+      "pointers": [],
       "sets": [],
       "containments": [
-        { "childType": "State", "min": 1, "max": null },
+        { "childType": "Init", "min": 0, "max": null },
+        { "childType": "State", "min": 0, "max": null },
         { "childType": "Transition", "min": 0, "max": null }
       ]
     },
     {
       "name": "State",
       "isAbstract": false,
-      "baseType": null,
-      "attributes": [
-        { "name": "name", "type": "string" },
-        { "name": "isInitial", "type": "boolean" },
-        { "name": "isFinal", "type": "boolean" }
-      ],
+      "baseType": "FCO",
+      "attributes": [],
+      "pointers": [],
+      "sets": [],
+      "containments": []
+    },
+    {
+      "name": "Init",
+      "isAbstract": false,
+      "baseType": "State",
+      "attributes": [],
+      "pointers": [],
+      "sets": [],
+      "containments": []
+    },
+    {
+      "name": "End",
+      "isAbstract": false,
+      "baseType": "State",
+      "attributes": [],
       "pointers": [],
       "sets": [],
       "containments": []
@@ -34,14 +56,14 @@
     {
       "name": "Transition",
       "isAbstract": false,
-      "baseType": null,
+      "baseType": "FCO",
       "attributes": [
         { "name": "event", "type": "string" },
         { "name": "guard", "type": "string" }
       ],
       "pointers": [
-        { "name": "source", "targetTypes": ["State"], "min": 1, "max": 1 },
-        { "name": "target", "targetTypes": ["State"], "min": 1, "max": 1 }
+        { "name": "src", "targetTypes": ["State"], "min": 1, "max": 1 },
+        { "name": "dst", "targetTypes": ["State"], "min": 1, "max": 1 }
       ],
       "sets": [],
       "containments": []

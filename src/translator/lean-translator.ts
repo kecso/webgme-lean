@@ -26,6 +26,7 @@ export interface TranslationContext {
   domainDSL: DomainDSL;
   currentScope: Map<string, string>;
   indentLevel: number;
+  modelType?: string;
 }
 
 /**
@@ -48,7 +49,8 @@ export function translateConstraintSet(
   const ctx: TranslationContext = {
     domainDSL,
     currentScope: new Map(),
-    indentLevel: 0
+    indentLevel: 0,
+    modelType: constraintSet.targetType
   };
 
   const scopeMode = constraintSet.scopeMode || 'descendants';
@@ -63,13 +65,12 @@ export function translateConstraintSet(
   lines.push('these constraints are evaluated separately for each instance.');
   lines.push('-/');
   lines.push('');
-  lines.push('import WebGMELean');
+  const domainNamespace = sanitizeIdentifier(domainDSL.name || 'Domain');
   lines.push('import Domain');
   lines.push('');
   lines.push(`namespace ${sanitizeIdentifier(constraintSet.name)}`);
   lines.push('');
-  lines.push('open WebGMELean');
-  lines.push('open Domain');
+  lines.push(`open ${domainNamespace}`);
   lines.push('');
   lines.push(`/-- The model root type for scoping -/`);
   lines.push(`def modelRootType : String := "${constraintSet.targetType}"`);
@@ -136,14 +137,9 @@ export function translateConstraint(
     lines.push(`/-- ${constraint.description} -/`);
   }
 
-  lines.push(`def ${safeName} (m : Model) : Bool :=`);
+  const modelType = sanitizeIdentifier(ctx.modelType || 'Model');
+  lines.push(`def ${safeName} (m : ${modelType}) : Bool :=`);
   lines.push(`  ${translateExpression(constraint.expression, ctx)}`);
-
-  if (constraint.severity === 'error') {
-    lines.push('');
-    lines.push(`/-- Theorem: ${safeName} holds for all valid models -/`);
-    lines.push(`theorem ${safeName}_holds (m : Model) (h : ${safeName} m) : ${safeName} m := h`);
-  }
 
   return lines.join('\n');
 }
@@ -187,7 +183,7 @@ function translateQuantifier(expr: QuantifierExpr, ctx: TranslationContext): str
   newScope.set(expr.variable, varName);
   const innerCtx = { ...ctx, currentScope: newScope };
   
-  const domainExpr = `m.getNodesByType "${domain}"`;
+  const domainExpr = `(_Contained.children (child := ${sanitizeIdentifier(domain)}) m)`;
   const body = translateExpression(expr.body, innerCtx);
   
   if (expr.quantifier === 'forall') {
@@ -248,34 +244,31 @@ function translateUnary(expr: UnaryExpr, ctx: TranslationContext): string {
 
 function translateAttribute(expr: AttributeExpr, ctx: TranslationContext): string {
   const target = translateExpression(expr.target, ctx);
-  return `(${target}).getAttribute "${expr.attribute}"`;
+  return `(${target}).${sanitizeIdentifier(expr.attribute)}`;
 }
 
 function translatePointer(expr: PointerExpr, ctx: TranslationContext): string {
   const target = translateExpression(expr.target, ctx);
-  return `(${target}).getPointer "${expr.pointer}"`;
+  return `(${target}).${sanitizeIdentifier(expr.pointer)}`;
 }
 
 function translateSet(expr: SetExpr, ctx: TranslationContext): string {
   const target = translateExpression(expr.target, ctx);
-  return `(${target}).getSetMembers "${expr.setName}"`;
+  return `(${target}).${sanitizeIdentifier(expr.setName)}`;
 }
 
 function translateLiteral(expr: LiteralExpr): string {
   if (expr.value === null) {
-    return 'AttrValue.null';
+    return 'none';
   }
   if (typeof expr.value === 'string') {
-    return `AttrValue.string "${expr.value}"`;
+    return `"${expr.value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
   }
   if (typeof expr.value === 'number') {
-    if (Number.isInteger(expr.value)) {
-      return `AttrValue.int ${expr.value}`;
-    }
-    return `AttrValue.float ${expr.value}`;
+    return String(expr.value);
   }
   if (typeof expr.value === 'boolean') {
-    return `AttrValue.bool ${expr.value}`;
+    return expr.value ? 'true' : 'false';
   }
   throw new Error(`Unknown literal type: ${typeof expr.value}`);
 }
@@ -349,8 +342,9 @@ function generateVerificationFunction(
   const lines: string[] = [];
   const constraintNames = constraintSet.constraints.map(c => sanitizeIdentifier(c.name));
 
+  const modelType = sanitizeIdentifier(ctx.modelType || 'Model');
   lines.push('/-- Verify all constraints in this set -/');
-  lines.push('def verifyAll (m : Model) : List (String × Bool) :=');
+  lines.push(`def verifyAll (m : ${modelType}) : List (String × Bool) :=`);
   lines.push('  [');
   
   for (let i = 0; i < constraintNames.length; i++) {
@@ -362,7 +356,7 @@ function generateVerificationFunction(
   lines.push('  ]');
   lines.push('');
   lines.push('/-- Check if all constraints pass -/');
-  lines.push('def allPass (m : Model) : Bool :=');
+  lines.push(`def allPass (m : ${modelType}) : Bool :=`);
   lines.push('  (verifyAll m).all (·.2)');
 
   return lines.join('\n');

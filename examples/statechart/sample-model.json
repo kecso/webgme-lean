@@ -2,26 +2,22 @@
   "nodes": [
     {
       "id": "/root",
-      "metaType": "StateMachine",
+      "metaType": "StateChart",
       "name": "TrafficLight",
       "attributes": {
         "name": "TrafficLight"
       },
-      "pointers": {
-        "initialState": "/root/state1"
-      },
+      "pointers": {},
       "sets": {},
-      "children": ["/root/state1", "/root/state2", "/root/state3", "/root/trans1", "/root/trans2", "/root/trans3"],
+      "children": ["/root/init", "/root/green", "/root/yellow", "/root/trans1", "/root/trans2", "/root/trans3"],
       "parent": null
     },
     {
-      "id": "/root/state1",
-      "metaType": "State",
+      "id": "/root/init",
+      "metaType": "Init",
       "name": "Red",
       "attributes": {
-        "name": "Red",
-        "isInitial": true,
-        "isFinal": false
+        "name": "Red"
       },
       "pointers": {},
       "sets": {},
@@ -29,13 +25,11 @@
       "parent": "/root"
     },
     {
-      "id": "/root/state2",
+      "id": "/root/green",
       "metaType": "State",
       "name": "Green",
       "attributes": {
-        "name": "Green",
-        "isInitial": false,
-        "isFinal": false
+        "name": "Green"
       },
       "pointers": {},
       "sets": {},
@@ -43,13 +37,11 @@
       "parent": "/root"
     },
     {
-      "id": "/root/state3",
+      "id": "/root/yellow",
       "metaType": "State",
       "name": "Yellow",
       "attributes": {
-        "name": "Yellow",
-        "isInitial": false,
-        "isFinal": false
+        "name": "Yellow"
       },
       "pointers": {},
       "sets": {},
@@ -65,8 +57,8 @@
         "guard": ""
       },
       "pointers": {
-        "source": "/root/state1",
-        "target": "/root/state2"
+        "src": "/root/init",
+        "dst": "/root/green"
       },
       "sets": {},
       "children": [],
@@ -81,8 +73,8 @@
         "guard": ""
       },
       "pointers": {
-        "source": "/root/state2",
-        "target": "/root/state3"
+        "src": "/root/green",
+        "dst": "/root/yellow"
       },
       "sets": {},
       "children": [],
@@ -97,8 +89,8 @@
         "guard": ""
       },
       "pointers": {
-        "source": "/root/state3",
-        "target": "/root/state1"
+        "src": "/root/yellow",
+        "dst": "/root/init"
       },
       "sets": {},
       "children": [],

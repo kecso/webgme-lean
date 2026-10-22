@@ -108,34 +108,143 @@ describe('DSL Generator', () => {
       const dsl = generateDomainDSL(sampleMetamodel);
       const leanCode = generateLeanTypes(dsl);
 
-      expect(leanCode).toContain('import WebGMELean');
-      expect(leanCode).toContain('namespace Domain');
-      expect(leanCode).toContain('end Domain');
+      expect(leanCode).toContain('namespace TestDomain');
+      expect(leanCode).toContain('class _Contained');
+      expect(leanCode).toContain('end TestDomain');
     });
 
-    it('should generate type predicates', () => {
+    it('should generate a structure per concept', () => {
       const dsl = generateDomainDSL(sampleMetamodel);
       const leanCode = generateLeanTypes(dsl);
 
-      expect(leanCode).toContain('def isRoot');
-      expect(leanCode).toContain('def isElement');
+      expect(leanCode).toContain('structure FCO where');
+      expect(leanCode).toContain('structure Root extends FCO where');
+      expect(leanCode).toContain('structure Element extends FCO where');
+      expect(leanCode).toContain('inductive _RootChild where');
     });
 
-    it('should generate getter functions', () => {
+    it('should emit attributes, pointers, and sets as fields', () => {
       const dsl = generateDomainDSL(sampleMetamodel);
       const leanCode = generateLeanTypes(dsl);
 
-      expect(leanCode).toContain('def getRoots');
-      expect(leanCode).toContain('def getElements');
+      expect(leanCode).toContain('name : String');
+      expect(leanCode).toContain('value : Int');
+      expect(leanCode).toContain('active : Bool');
+      expect(leanCode).not.toContain('structure ElementAttr');
+      expect(leanCode).not.toContain('structure _ElementPtr');
+      expect(leanCode).toContain('target : Option _NodeId');
+      expect(leanCode).not.toContain('structure _ElementSets');
+      expect(leanCode).toContain('refs : List _NodeId');
+      expect(leanCode).toContain('_id : _NodeId');
+      expect(leanCode).toContain('_type : _Type');
     });
 
-    it('should generate attribute accessors', () => {
+    it('should encode a base concept with extends', () => {
+      const dsl = generateDomainDSL({
+        name: 'Inherit',
+        rootType: 'State',
+        nodes: [
+          {
+            name: 'State',
+            isAbstract: false,
+            baseType: null,
+            attributes: [{ name: 'name', type: 'string' }],
+            pointers: [],
+            sets: [],
+            containments: []
+          },
+          {
+            name: 'Init',
+            isAbstract: false,
+            baseType: 'State',
+            attributes: [],
+            pointers: [],
+            sets: [],
+            containments: []
+          }
+        ]
+      });
+      const leanCode = generateLeanTypes(dsl);
+
+      expect(leanCode).toContain('structure State extends FCO deriving Repr');
+      expect(leanCode).toContain('structure Init extends State deriving Repr');
+      expect(leanCode).not.toContain('structure StateAttr');
+      expect(leanCode).not.toContain('structure InitAttr');
+    });
+
+    it('should coerce a descendant into the pointer target', () => {
+      const dsl = generateDomainDSL({
+        name: 'StatechartDomain',
+        rootType: 'StateChart',
+        nodes: [
+          {
+            name: 'FCO',
+            isAbstract: true,
+            baseType: null,
+            attributes: [{ name: 'name', type: 'string' }],
+            pointers: [],
+            sets: [],
+            containments: []
+          },
+          {
+            name: 'State',
+            isAbstract: false,
+            baseType: 'FCO',
+            attributes: [],
+            pointers: [],
+            sets: [],
+            containments: []
+          },
+          {
+            name: 'Init',
+            isAbstract: false,
+            baseType: 'State',
+            attributes: [],
+            pointers: [],
+            sets: [],
+            containments: []
+          },
+          {
+            name: 'End',
+            isAbstract: false,
+            baseType: 'State',
+            attributes: [],
+            pointers: [],
+            sets: [],
+            containments: []
+          },
+          {
+            name: 'Transition',
+            isAbstract: false,
+            baseType: 'FCO',
+            attributes: [],
+            pointers: [
+              { name: 'src', targetTypes: ['State'], min: 1, max: 1 }
+            ],
+            sets: [],
+            containments: []
+          }
+        ]
+      });
+      const leanCode = generateLeanTypes(dsl);
+
+      expect(leanCode).toContain('src : State');
+      expect(leanCode).toContain('instance : Coe Init State where');
+      expect(leanCode).toContain('coe := Init.toState');
+      expect(leanCode).toContain('instance : Coe End State where');
+      expect(leanCode).toContain('coe := End.toState');
+      expect(leanCode).toContain('| cEnd');
+      expect(leanCode).toContain('| cInit');
+      expect(leanCode).not.toContain('«end»');
+      expect(leanCode).not.toContain('StateRef');
+    });
+
+    it('should expose containment as the children lookup', () => {
       const dsl = generateDomainDSL(sampleMetamodel);
       const leanCode = generateLeanTypes(dsl);
 
-      expect(leanCode).toContain('Element_name');
-      expect(leanCode).toContain('Element_value');
-      expect(leanCode).toContain('Element_active');
+      expect(leanCode).toContain('instance : _Contained Root Element where');
+      expect(leanCode).toContain('children parent := parent._containment.filterMap');
     });
   });
 

@@ -14,11 +14,7 @@ WebGME is a powerful tool for creating domain-specific modeling languages. While
 - Set-theoretic properties
 - Reachability and connectivity
 
-**webgme-lean** bridges this gap by:
-
-1. **Generating a domain-specific constraint language** from your WebGME metamodel
-2. **Translating constraints** to Lean 4 code for formal verification
-3. **Providing a WebGME plugin** for integrated model verification
+**webgme-lean** is a WebGME application. The metamodel is the META of the project you have open. A plugin reads that META through the core and builds a constraint language server from it. Constraints written against those concepts are translated to Lean 4 for verification.
 
 ## Architecture
 
@@ -37,70 +33,27 @@ WebGME is a powerful tool for creating domain-specific modeling languages. While
 
 ### Components
 
+- **`app.js`**, **`config/`** - WebGME server
+- **`src/plugins/GenerateConstraintLanguage/`** - Plugin that walks the open project's META and generates the constraint language server
+- **`src/common/metaLanguage.js`** - META traversal and the language server built from it
 - **`lean/`** - Lean 4 core library with model structures, graph operations, set theory, and verification tactics
-- **`src/generator/`** - Generates domain-specific DSL from WebGME metamodel
 - **`src/dsl/`** - Parser for the constraint language
 - **`src/translator/`** - Translates parsed constraints to Lean code
-- **`src/plugin/`** - WebGME plugin for integrated verification
-- **`src/nl/`** - Natural language translation (NL↔DSL) with LLM integration
-- **`src/mcp/`** - MCP server for AI agent integration (gmebot)
-- **`src/router/`** - WebGME REST router for constraint services
-- **`src/visualizer/`** - Enhanced constraint editor with AI assistance
 
 ## Quick Start
 
-### Installation
+Projects are stored in the server process:
 
 ```bash
-npm install webgme-lean
+npm install
+npm start
 ```
 
-### Basic Usage
+Open `http://localhost:8888`, create or open a project, and run **GenerateConstraintLanguage** from the plugin menu. The project is gone when the server stops.
 
-1. **Define your metamodel** (or export from WebGME):
+The plugin loads the META nodes of that commit (`core.getAllMetaNodes`), including base, mixins, attributes, pointers, sets, and containment, and writes `constraint-language.json`. Concepts are stored by node path and guid, so a later rename can follow the same node. The language server used for completion, hover, and diagnostics is created from that snapshot each time the plugin runs.
 
-```json
-{
-  "name": "StatechartDomain",
-  "rootType": "StateMachine",
-  "nodes": [
-    {
-      "name": "State",
-      "attributes": [
-        { "name": "name", "type": "string" },
-        { "name": "isInitial", "type": "boolean" }
-      ],
-      "pointers": [],
-      "containments": []
-    }
-  ]
-}
-```
-
-2. **Write constraints** using the generated DSL:
-
-```
-// constraints.wgl
-constraintset StatechartConstraints for StateMachine
-
-constraint UniqueStateNames [error]
-// Each state must have a unique name
-forall s1 in State:
-  forall s2 in State where s1.name == s2.name:
-    s1 == s2
-
-constraint SingleInitialState [error]
-// Exactly one state can be initial
-forall s1 in State where s1.isInitial == true:
-  forall s2 in State where s2.isInitial == true:
-    s1 == s2
-```
-
-3. **Run verification**:
-
-```bash
-npm run verify -- metamodel.json constraints.wgl model.json
-```
+The vocabulary of the constraint language — type names, attributes, pointers, sets — is whatever that project's META defines. See [Constraint Language](#constraint-language).
 
 ## Constraint Language
 
@@ -322,33 +275,30 @@ if (report.summary.failed > 0) {
 
 ## Example: Statechart Domain
 
-See `examples/statechart/` for a complete example:
+See `examples/statechart/` for a complete example. `statechart.webgmex` is the WebGME project. Its META defines `StateChart`, `State`, `Init`, `End`, and `Transition` (`src` and `dst` point at `State`; `event` and `guard` are attributes of `Transition`). `StateChart` contains `Init`, `State`, and `Transition`.
 
-- `metamodel.json` - Statechart metamodel definition
-- `constraints.wgl` - Domain constraints
-- `sample-model.json` - Example model (Traffic Light)
+- `statechart.webgmex` - WebGME project
+- `metamodel.json` - the same vocabulary for the file-based tools
+- `constraints.wgl` - domain constraints
+- `sample-model.json` - example model (Traffic Light)
 
 ### Sample Constraints
 
 ```
-constraintset StatechartConstraints for StateMachine
+constraintset StatechartConstraints for StateChart
 
 constraint UniqueStateNames [error]
-// Each state must have a unique name within its parent
 forall s1 in State:
   forall s2 in State where s1.name == s2.name:
     s1 == s2
 
 constraint InitialStateExists [error]
-// Every state machine must have exactly one initial state
-exists s in State where s.isInitial == true:
+exists i in Init:
   true
 
-constraint FinalStateNoOutgoing [warning]
-// Final states should not have outgoing transitions
+constraint TransitionHasSource [error]
 forall t in Transition:
-  forall s in State where s.isFinal == true:
-    t.source != s
+  t.src != null
 ```
 
 ## Development

@@ -5,10 +5,22 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
+    "start": "node app.js",
     "build": "tsc",
-    "test": "vitest run",
+    "test": "npm run test:plugin && npm run test:unit",
+    "test:plugin": "mocha --recursive test/plugins test/common",
+    "test:unit": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts",
+    "apply": "node ./node_modules/webgme-engine/src/bin/apply.js",
+    "diff": "node ./node_modules/webgme-engine/src/bin/diff.js",
+    "export": "node ./node_modules/webgme-engine/src/bin/export.js",
+    "import": "node ./node_modules/webgme-engine/src/bin/import.js",
+    "merge": "node ./node_modules/webgme-engine/src/bin/merge.js",
+    "plugin": "node ./node_modules/webgme-engine/src/bin/run_plugin.js",
+    "pluginHook": "node ./node_modules/webgme-engine/src/bin/plugin_hook.js",
+    "users": "node ./node_modules/webgme-engine/src/bin/usermanager.js",
+    "clean_up": "node ./node_modules/webgme-engine/src/bin/clean_up.js",
     "generate-dsl": "ts-node src/cli/generate-dsl.ts",
     "translate": "ts-node src/cli/translate.ts",
     "verify": "ts-node src/cli/verify.ts"
@@ -24,6 +36,7 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "mocha": "^10.7.3",
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
@@ -33,21 +46,18 @@
     "vitest": "^1.0.0"
   },
   "dependencies": {
-    "chevrotain": "^11.0.3"
+    "chevrotain": "^11.0.3",
+    "webgme": "2.50.0"
   },
   "peerDependencies": {
-    "webgme": "^2.0.0",
     "monaco-editor": "^0.45.0"
   },
   "peerDependenciesMeta": {
-    "webgme": {
-      "optional": true
-    },
     "monaco-editor": {
       "optional": true
     }
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.19.0"
   }
 }

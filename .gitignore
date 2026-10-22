@@ -26,6 +26,10 @@ coverage/
 *.log
 npm-debug.log*
 
+# WebGME local blob storage
+blob-local-storage/
+test-tmp/
+
 # Environment
 .env
 .env.local

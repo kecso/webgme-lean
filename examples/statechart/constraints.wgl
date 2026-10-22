@@ -1,79 +1,48 @@
-// Statechart Domain Constraints
-// Written in the WebGME-Lean constraint language
-//
-// Syntax for accessing node properties:
-//   node.attrName   - attribute access
-//   node->ptrName   - pointer access  
-//   node[setName]   - set access
+// Statechart domain constraints.
+// The vocabulary is the META of examples/statechart/statechart.webgmex:
+// StateChart contains Init, State, and Transition. Init and End specialize State.
+// Transition.event and Transition.guard are attributes. src and dst point at State.
 
-constraintset StatechartConstraints for StateMachine
+constraintset StatechartConstraints for StateChart
 
-// Define domain-specific reachability using Transition objects
-define reachable(src, dst) = reachableVia(src, dst, Transition, "source", "target")
+define reachable(src, dst) = reachableVia(src, dst, Transition, "src", "dst")
 
-// Inverse navigation: find transitions pointing to/from a state
-// pointingTo(node, Type, "ptrName") returns all nodes of Type where ptrName points to node
-//
-// outgoingTransitions: Transitions where 'source' points to this state
-define hasOutgoing(s) = !isEmpty(pointingTo(s, Transition, "source"))
-
-// incomingTransitions: Transitions where 'target' points to this state
-define hasIncoming(s) = !isEmpty(pointingTo(s, Transition, "target"))
+define hasOutgoing(s) = !isEmpty(pointingTo(s, Transition, "src"))
+define hasIncoming(s) = !isEmpty(pointingTo(s, Transition, "dst"))
 
 constraint UniqueStateNames [error]
-// Each state must have a unique name within its parent
 forall s1 in State:
   forall s2 in State where s1.name == s2.name:
     s1 == s2
 
 constraint InitialStateExists [error]
-// Every state machine must have exactly one initial state
-exists s in State where s.isInitial == true:
+exists i in Init:
   true
 
-constraint SingleInitialState [error]
-// At most one state can be marked as initial
-forall s1 in State where s1.isInitial == true:
-  forall s2 in State where s2.isInitial == true:
-    s1 == s2
-
-constraint InitialStateNotFinal [error]
-// An initial state cannot also be a final state
-forall s in State where s.isInitial == true:
-  s.isFinal == false
-
 constraint TransitionHasSource [error]
-// Every transition must have a source state (-> for pointer access)
 forall t in Transition:
-  t->source != null
+  t->src != null
 
 constraint TransitionHasTarget [error]
-// Every transition must have a target state (-> for pointer access)
 forall t in Transition:
-  t->target != null
+  t->dst != null
 
 constraint NoSelfLoopOnInitial [warning]
-// Initial states should not have self-loops
 forall t in Transition:
-  forall s in State where s.isInitial == true:
-    (t->source == s and t->target == s) implies false
+  forall i in Init:
+    (t->src == i and t->dst == i) implies false
 
-constraint FinalStateNoOutgoing [warning]
-// Final states should not have outgoing transitions
+constraint EndStateNoOutgoing [warning]
 forall t in Transition:
-  forall s in State where s.isFinal == true:
-    t->source != s
+  forall e in End:
+    t->src != e
 
 constraint AllStatesReachable [error]
-// All states should be reachable from the initial state
-// Uses the domain-specific 'reachable' function defined above
 forall target in State:
-  exists initial in State where initial.isInitial == true:
+  exists initial in Init:
     reachable(initial, target) or initial == target
 
 constraint NoDuplicateTransitions [warning]
-// No two transitions should have the same source, target, and event
-// Note: source/target are pointers (->), event is an attribute (.)
 forall t1 in Transition:
-  forall t2 in Transition where t1->source == t2->source and t1->target == t2->target and t1.event == t2.event:
+  forall t2 in Transition where t1->src == t2->src and t1->dst == t2->dst and t1.event == t2.event:
     t1 == t2

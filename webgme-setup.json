@@ -1,0 +1,25 @@
+{
+  "components": {
+    "visualizers": {},
+    "addons": {},
+    "decorators": {},
+    "layouts": {},
+    "plugins": {
+      "GenerateConstraintLanguage": {
+        "src": "src/plugins/GenerateConstraintLanguage",
+        "test": "test/plugins/GenerateConstraintLanguage"
+      }
+    },
+    "routers": {},
+    "seeds": {}
+  },
+  "dependencies": {
+    "visualizers": {},
+    "addons": {},
+    "decorators": {},
+    "layouts": {},
+    "plugins": {},
+    "routers": {},
+    "seeds": {}
+  }
+}

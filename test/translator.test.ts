@@ -36,23 +36,23 @@ describe('Lean Translator', () => {
     it('should translate literals', () => {
       const expr = parseConstraint('42');
       const lean = translateExpression(expr, defaultContext);
-      expect(lean).toContain('AttrValue.int 42');
+      expect(lean).toBe('42');
     });
 
     it('should translate boolean literals', () => {
       const trueExpr = parseConstraint('true');
       const trueLean = translateExpression(trueExpr, defaultContext);
-      expect(trueLean).toContain('AttrValue.bool true');
+      expect(trueLean).toBe('true');
 
       const falseExpr = parseConstraint('false');
       const falseLean = translateExpression(falseExpr, defaultContext);
-      expect(falseLean).toContain('AttrValue.bool false');
+      expect(falseLean).toBe('false');
     });
 
     it('should translate string literals', () => {
       const expr = parseConstraint('"hello"');
       const lean = translateExpression(expr, defaultContext);
-      expect(lean).toContain('AttrValue.string "hello"');
+      expect(lean).toBe('"hello"');
     });
 
     it('should translate equality', () => {
@@ -84,7 +84,7 @@ describe('Lean Translator', () => {
       const lean = translateExpression(expr, defaultContext);
       expect(lean).toContain('.all');
       expect(lean).toContain('fun');
-      expect(lean).toContain('getNodesByType "State"');
+      expect(lean).toContain('_Contained.children (child := State)');
     });
 
     it('should translate exists', () => {
@@ -123,8 +123,10 @@ describe('Lean Translator', () => {
 
       const leanCode = translateConstraintSet(constraintSet, domainDSL);
 
-      expect(leanCode).toContain('import WebGMELean');
+      expect(leanCode).toContain('import Domain');
+      expect(leanCode).toContain('open TestDomain');
       expect(leanCode).toContain('namespace TestConstraints');
+      expect(leanCode).toContain('(s).name');
       expect(leanCode).toContain('def StateHasName');
       expect(leanCode).toContain('def verifyAll');
       expect(leanCode).toContain('def allPass');
@@ -149,7 +151,7 @@ describe('Lean Translator', () => {
       expect(leanCode).toContain('/-- This is a test constraint -/');
     });
 
-    it('should generate theorem for error constraints', () => {
+    it('should type the constraint by the model root', () => {
       const constraintSet: ConstraintSet = {
         name: 'TestConstraints',
         targetType: 'State',
@@ -163,7 +165,8 @@ describe('Lean Translator', () => {
       };
 
       const leanCode = translateConstraintSet(constraintSet, domainDSL);
-      expect(leanCode).toContain('theorem CriticalConstraint_holds');
+      expect(leanCode).toContain('def CriticalConstraint (m : State) : Bool');
+      expect(leanCode).not.toContain('theorem CriticalConstraint_holds');
     });
 
     it('should generate verifyAll function with all constraints', () => {
