@@ -11,6 +11,8 @@ import { Metamodel, MetaNode, MetaAttribute, MetaPointer, MetaSet } from '../com
 
 export interface DomainDSL {
   name?: string;
+  /** The concept constraints are about, such as StateChart. Not the WebGME project root. */
+  mainType?: string;
   keywords: string[];
   typeDefinitions: TypeDefinition[];
   validationRules: ValidationRule[];
@@ -41,6 +43,8 @@ export interface PointerDef {
 export interface SetDef {
   name: string;
   memberTypes: string[];
+  min: number;
+  max: number | null;
 }
 
 export interface ContainmentDef {
@@ -78,6 +82,7 @@ export function generateDomainDSL(metamodel: Metamodel): DomainDSL {
 
   return {
     name: metamodel.name,
+    mainType: metamodel.rootType,
     keywords,
     typeDefinitions,
     validationRules,
@@ -120,7 +125,9 @@ function generateTypeDefinition(node: MetaNode): TypeDefinition {
     })),
     sets: node.sets.map(set => ({
       name: set.name,
-      memberTypes: set.memberTypes
+      memberTypes: set.memberTypes,
+      min: set.min,
+      max: set.max
     })),
     containments: node.containments.map(cont => ({
       childType: cont.childType,
@@ -243,6 +250,8 @@ function reaches(start: string, goal: string, adjacent: Map<string, string[]>): 
 interface LeanField {
   name: string;
   type: string;
+  min?: number;
+  max?: number | null;
 }
 
 interface LeanConcept {
@@ -265,6 +274,8 @@ interface LeanConcept {
  * A pointer's type is its meta target. `Coe` stores a descendant there and
  * keeps the target's fields, including `_type`.
  * A pointer that would make a structure contain itself is an `_NodeId`.
+ * Containment and set bounds that a `List` does not enforce are defs of the main type.
+ * The result is that generated text only. The editor places user constraints after it.
  */
 export function generateLeanTypes(dsl: DomainDSL): string {
   const types = dsl.typeDefinitions;
@@ -307,7 +318,9 @@ export function generateLeanTypes(dsl: DomainDSL): string {
     })),
     sets: type.sets.map(set => ({
       name: leanIdent(set.name),
-      type: `List ${targetTypeOf(type.name, set.memberTypes)}`
+      type: `List ${targetTypeOf(type.name, set.memberTypes)}`,
+      min: set.min,
+      max: set.max
     })),
     containments: type.containments
   });
@@ -535,8 +548,57 @@ export function generateLeanTypes(dsl: DomainDSL): string {
     }
   }
 
-  lines.push(`end ${namespace}`);
-  lines.push('');
+  const mainName = leanIdent(dsl.mainType || namespace);
+  const mainConcept = [fco, ...concepts].find(concept => leanIdent(concept.name) === mainName);
+  const directChildren = new Set(
+    (mainConcept ? mainConcept.containments : []).map(child => leanIdent(child.childType))
+  );
+  const structural: string[] = [];
+  const emitDef = (name: string, body: string[]) => {
+    structural.push(`def ${name} (m : ${mainName}) : Bool :=`);
+    for (const line of body) {
+      structural.push(`  ${line}`);
+    }
+    structural.push('');
+  };
+  for (const concept of [fco, ...concepts]) {
+    const owner = leanIdent(concept.name);
+    if (owner !== mainName && !directChildren.has(owner)) {
+      continue;
+    }
+    const defOwner = owner === mainName ? mainName : `${mainName}_${owner}`;
+    for (const child of concept.containments) {
+      const childName = leanIdent(child.childType);
+      const lengthOf = owner === mainName
+        ? `(_Contained.children (child := ${childName}) m).length`
+        : `(_Contained.children (child := ${childName}) node).length`;
+      const body = (check: string) => owner === mainName
+        ? [check]
+        : [`(_Contained.children (child := ${owner}) m).all fun node =>`, `  ${check}`];
+      if (child.min > 0) {
+        emitDef(`${defOwner}_atLeast_${child.min}_${childName}`, body(`${lengthOf} ≥ ${child.min}`));
+      }
+      if (child.max !== null) {
+        emitDef(`${defOwner}_atMost_${child.max}_${childName}`, body(`${lengthOf} ≤ ${child.max}`));
+      }
+    }
+    for (const set of concept.sets) {
+      const lengthOf = owner === mainName
+        ? `(m.${set.name}).length`
+        : `(node.${set.name}).length`;
+      const setOwner = owner === mainName ? `${mainName}_${set.name}` : `${mainName}_${owner}_${set.name}`;
+      const body = (check: string) => owner === mainName
+        ? [check]
+        : [`(_Contained.children (child := ${owner}) m).all fun node =>`, `  ${check}`];
+      if ((set.min ?? 0) > 0) {
+        emitDef(`${setOwner}_atLeast_${set.min}`, body(`${lengthOf} ≥ ${set.min}`));
+      }
+      if (set.max != null) {
+        emitDef(`${setOwner}_atMost_${set.max}`, body(`${lengthOf} ≤ ${set.max}`));
+      }
+    }
+  }
+  lines.push(...structural);
   return lines.join('\n');
 }
 

@@ -11,6 +11,9 @@ config.plugin.displayAll = true;
 config.requirejsPaths = config.requirejsPaths || {};
 config.requirejsPaths['webgme-lean'] = './src/common';
 
+// Add Monaco Editor paths for RequireJS
+config.requirejsPaths['vs'] = './node_modules/monaco-editor/min/vs';
+
 config.seedProjects.basePaths.push(path.join(__dirname, '../examples/statechart'));
 
 // The project database lives in the server process. A plugin worker opens the

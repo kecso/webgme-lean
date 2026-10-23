@@ -9,8 +9,11 @@ var config = require('webgme/config/config.default'),
 config.plugin.basePaths.push(__dirname + '/../src/plugins');
 
 // Visualizer descriptors
+config.visualization.visualizerDescriptors.push(__dirname + '/../src/visualizers/Visualizers.json');
 
 // Add requirejs paths
+config.requirejsPaths['widgets/LeanEditor'] = './src/visualizers/widgets/LeanEditor';
+config.requirejsPaths['panels/LeanEditor'] = './src/visualizers/panels/LeanEditor';
 
 config.mongo.uri = 'mongodb://127.0.0.1:27017/webgme_lean';
 validateConfig(config);

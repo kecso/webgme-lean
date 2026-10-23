@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generateDomainDSL, generateLeanTypes, generateDSLDocumentation } from '../src/generator/dsl-generator';
 import { Metamodel } from '../src/common/types';
+import statechartMetamodel from '../examples/statechart/metamodel.json';
 
 describe('DSL Generator', () => {
   const sampleMetamodel: Metamodel = {
@@ -110,7 +111,22 @@ describe('DSL Generator', () => {
 
       expect(leanCode).toContain('namespace TestDomain');
       expect(leanCode).toContain('class _Contained');
-      expect(leanCode).toContain('end TestDomain');
+      expect(leanCode).not.toContain('-- user defined');
+      expect(leanCode).not.toContain('end TestDomain');
+      expect(leanCode).not.toContain('_atLeast_');
+      expect(leanCode).not.toContain('_atMost_');
+      expect(dsl.mainType).toBe('Root');
+    });
+
+    it('should use the metamodel main type as the scope', () => {
+      const dsl = generateDomainDSL(statechartMetamodel as Metamodel);
+      const leanCode = generateLeanTypes(dsl);
+
+      expect(dsl.mainType).toBe('StateChart');
+      expect(leanCode).toContain('namespace StatechartDomain');
+      expect(leanCode).toContain('structure StateChart');
+      expect(leanCode).not.toContain('structure Root');
+      expect(leanCode).not.toContain('ROOT');
     });
 
     it('should generate a structure per concept', () => {
@@ -237,6 +253,54 @@ describe('DSL Generator', () => {
       expect(leanCode).toContain('| cInit');
       expect(leanCode).not.toContain('«end»');
       expect(leanCode).not.toContain('StateRef');
+    });
+
+    it('should pregenerate containment and set bounds on the main type', () => {
+      const dsl = generateDomainDSL({
+        name: 'Bounds',
+        rootType: 'StateChart',
+        nodes: [
+          {
+            name: 'StateChart',
+            isAbstract: false,
+            baseType: null,
+            attributes: [{ name: 'name', type: 'string' }],
+            pointers: [],
+            sets: [],
+            containments: [{ childType: 'Element', min: 1, max: 2 }]
+          },
+          {
+            name: 'Element',
+            isAbstract: false,
+            baseType: null,
+            attributes: [{ name: 'name', type: 'string' }],
+            pointers: [
+              { name: 'target', targetTypes: ['Element'], min: 1, max: 1 }
+            ],
+            sets: [
+              { name: 'refs', memberTypes: ['Element'], min: 1, max: 3 }
+            ],
+            containments: []
+          }
+        ]
+      });
+      const leanCode = generateLeanTypes(dsl);
+
+      expect(dsl.mainType).toBe('StateChart');
+      expect(leanCode).toContain('def StateChart_atLeast_1_Element (m : StateChart) : Bool :=');
+      expect(leanCode).toContain('(_Contained.children (child := Element) m).length ≥ 1');
+      expect(leanCode).toContain('def StateChart_atMost_2_Element (m : StateChart) : Bool :=');
+      expect(leanCode).toContain('(_Contained.children (child := Element) m).length ≤ 2');
+      expect(leanCode).toContain('def StateChart_Element_refs_atLeast_1 (m : StateChart) : Bool :=');
+      expect(leanCode).toContain('(_Contained.children (child := Element) m).all fun node =>');
+      expect(leanCode).toContain('(node.refs).length ≥ 1');
+      expect(leanCode).toContain('def StateChart_Element_refs_atMost_3 (m : StateChart) : Bool :=');
+      expect(leanCode).toContain('(node.refs).length ≤ 3');
+      expect(leanCode).toContain('target : _NodeId');
+      expect(leanCode).not.toContain('(m : Element)');
+      expect(leanCode).not.toContain('structure Root');
+      expect(leanCode).not.toContain('-- user defined');
+      expect(leanCode).not.toContain('end Bounds');
     });
 
     it('should expose containment as the children lookup', () => {
