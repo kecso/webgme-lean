@@ -92,26 +92,15 @@ define([
 
     LeanEditorWidget.prototype._loadMonaco = function () {
         var self = this;
-        var monacoPath = '/node_modules/monaco-editor/min/vs';
-
-        if (typeof require !== 'undefined' && typeof require.config === 'function') {
-            require.config({
-                paths: {
-                    vs: monacoPath
-                }
-            });
-
-            require(['vs/editor/editor.main'], function (monaco) {
-                self._monaco = monaco;
-                self._initializeEditor();
-            }, function (err) {
-                self._logger.error('Failed to load Monaco:', err);
-                self._setStatus('Failed to load editor', 'error');
-            });
-        } else {
-            self._logger.error('RequireJS not available');
-            self._setStatus('Editor not available', 'error');
-        }
+        
+        // Use the configured requirejs path
+        require(['vs/editor/editor.main'], function (monaco) {
+            self._monaco = monaco;
+            self._initializeEditor();
+        }, function (err) {
+            self._logger.error('Failed to load Monaco:', err);
+            self._setStatus('Failed to load editor', 'error');
+        });
     };
 
     LeanEditorWidget.prototype._initializeEditor = function () {
