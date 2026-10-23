@@ -7,8 +7,12 @@
  */
 
 define([
-    'css!./styles/LeanEditorWidget.css'
-], function () {
+    'css!./styles/LeanEditorWidget.css',
+    'webgme-lean/metaLean'
+], function (
+    _css,
+    metaLean
+) {
     'use strict';
 
     var WIDGET_CLASS = 'lean-editor';
@@ -295,6 +299,228 @@ define([
             this._editor = null;
         }
         this._el.empty();
+    };
+
+    LeanEditorWidget.prototype._constraintAtCursor = function () {
+        var model;
+        var selection;
+        var selected;
+        var line;
+        var start;
+        var end;
+        var count;
+
+        if (!this._editor) {
+            return '';
+        }
+        model = this._editor.getModel();
+        selection = this._editor.getSelection();
+        if (!model || !selection) {
+            return '';
+        }
+        selected = model.getValueInRange(selection).trim();
+        if (selected) {
+            return selected;
+        }
+
+        line = selection.startLineNumber;
+        start = line;
+        while (start > 1 && !/^\s*constraint\b/.test(model.getLineContent(start))) {
+            start -= 1;
+        }
+        if (!/^\s*constraint\b/.test(model.getLineContent(start))) {
+            return model.getLineContent(line).trim();
+        }
+        end = start;
+        count = model.getLineCount();
+        while (end < count) {
+            var next = model.getLineContent(end + 1);
+            if (/^\s*(constraint|constraintset|define)\b/.test(next)) {
+                break;
+            }
+            end += 1;
+        }
+        return model.getValueInRange(new this._monaco.Range(
+            start, 1, end, model.getLineMaxColumn(end)
+        )).trim();
+    };
+
+    LeanEditorWidget.prototype._ensureDialog = function () {
+        var self = this;
+        if (this._dialog) {
+            return;
+        }
+        this._dialog = document.createElement('div');
+        this._dialog.className = 'lean-nl-dialog';
+        this._dialog.innerHTML = '' +
+            '<div class="lean-nl-title"><span class="lean-nl-heading"></span>' +
+            '<button type="button" class="lean-nl-close" title="Close">&times;</button></div>' +
+            '<div class="lean-nl-body"></div>';
+        this._dialog.querySelector('.lean-nl-close').addEventListener('click', function () {
+            self._dialog.style.display = 'none';
+        });
+        this._el.append(this._dialog);
+    };
+
+    LeanEditorWidget.prototype._showDialog = function (title, fill) {
+        this._ensureDialog();
+        this._dialog.querySelector('.lean-nl-heading').textContent = title;
+        var body = this._dialog.querySelector('.lean-nl-body');
+        body.innerHTML = '';
+        fill(body);
+        this._dialog.style.display = 'flex';
+    };
+
+    LeanEditorWidget.prototype._postJson = function (path, payload) {
+        return fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function (response) {
+            return response.json().then(function (body) {
+                return { ok: response.ok, status: response.status, body: body };
+            });
+        });
+    };
+
+    LeanEditorWidget.prototype.explainAtCursor = function () {
+        var self = this;
+        var text = this._constraintAtCursor();
+
+        this._showDialog('Explain', function (body) {
+            if (!text) {
+                body.textContent = 'Place the cursor inside a constraint, or select the text to explain.';
+                return;
+            }
+            body.textContent = 'Reading the constraint…';
+            self._postJson('/leanllm/explain', { constraint: text }).then(function (result) {
+                body.innerHTML = '';
+                if (!result.ok || !result.body || result.body.success === false) {
+                    var error = document.createElement('div');
+                    error.className = 'lean-nl-error';
+                    error.textContent = (result.body && (result.body.error || (result.body.validationErrors || []).join(' '))) ||
+                        'Could not explain that constraint.';
+                    body.appendChild(error);
+                    return;
+                }
+                var summary = document.createElement('p');
+                var summaryText = result.body.summary || result.body.explanation || '';
+                var explanation = result.body.explanation || '';
+                summary.textContent = summaryText;
+                body.appendChild(summary);
+                if (explanation.replace(/\.$/, '') !== summaryText.replace(/\.$/, '')) {
+                    var more = document.createElement('p');
+                    more.textContent = result.body.explanation;
+                    body.appendChild(more);
+                }
+            }).catch(function (err) {
+                body.innerHTML = '';
+                var error = document.createElement('div');
+                error.className = 'lean-nl-error';
+                error.textContent = err.message || String(err);
+                body.appendChild(error);
+            });
+        });
+    };
+
+    LeanEditorWidget.prototype.openDescribePopup = function () {
+        var self = this;
+
+        this._showDialog('Describe a constraint', function (body) {
+            var hint = document.createElement('p');
+            hint.textContent = 'Describe the constraint in ordinary language. The result is inserted at the cursor.';
+            var input = document.createElement('textarea');
+            input.placeholder = 'There is exactly one Init.';
+            var actions = document.createElement('div');
+            actions.className = 'lean-nl-actions';
+            var generate = document.createElement('button');
+            generate.type = 'button';
+            generate.className = 'btn btn-xs btn-primary';
+            generate.textContent = 'Generate';
+            var status = document.createElement('div');
+            actions.appendChild(generate);
+            body.appendChild(hint);
+            body.appendChild(input);
+            body.appendChild(actions);
+            body.appendChild(status);
+
+            generate.addEventListener('click', function () {
+                var description = input.value.trim();
+                var vocab;
+                if (!description) {
+                    status.textContent = 'Write a description first.';
+                    return;
+                }
+                vocab = metaLean.vocabulary(self._client);
+                status.textContent = 'Generating…';
+                self._postJson('/leanllm/translate', {
+                    description: description,
+                    existing: self.getContent(),
+                    rootType: vocab.rootType,
+                    types: vocab.types
+                }).then(function (result) {
+                    status.innerHTML = '';
+                    if (!result.body || !result.body.constraint) {
+                        var error = document.createElement('div');
+                        error.className = 'lean-nl-error';
+                        error.textContent = (result.body && (result.body.error ||
+                            (result.body.validationErrors || []).join(' '))) ||
+                            'No constraint was returned.';
+                        status.appendChild(error);
+                        return;
+                    }
+                    var preview = document.createElement('pre');
+                    preview.textContent = result.body.constraint;
+                    var note = document.createElement('p');
+                    note.textContent = result.body.explanation || '';
+                    var insert = document.createElement('button');
+                    insert.type = 'button';
+                    insert.className = 'btn btn-xs btn-success';
+                    insert.textContent = 'Insert';
+                    insert.addEventListener('click', function () {
+                        self._insertText(result.body.constraint);
+                        self._dialog.style.display = 'none';
+                    });
+                    status.appendChild(preview);
+                    if (note.textContent) {
+                        status.appendChild(note);
+                    }
+                    if (result.body.validationErrors && result.body.validationErrors.length) {
+                        var warn = document.createElement('div');
+                        warn.className = 'lean-nl-error';
+                        warn.textContent = result.body.validationErrors.join(' ');
+                        status.appendChild(warn);
+                    }
+                    status.appendChild(insert);
+                }).catch(function (err) {
+                    status.innerHTML = '';
+                    var error = document.createElement('div');
+                    error.className = 'lean-nl-error';
+                    error.textContent = err.message || String(err);
+                    status.appendChild(error);
+                });
+            });
+        });
+    };
+
+    LeanEditorWidget.prototype._insertText = function (text) {
+        var model;
+        var position;
+        var prefix;
+
+        if (!this._editor || !text) {
+            return;
+        }
+        model = this._editor.getModel();
+        position = this._editor.getPosition();
+        prefix = '';
+        if (model.getValue()) {
+            prefix = model.getEOL() + model.getEOL();
+        }
+        this._editor.executeEdits('describe', [{
+            range: new this._monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+            text: prefix + text + model.getEOL()
+        }]);
     };
 
     return LeanEditorWidget;

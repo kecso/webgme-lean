@@ -510,52 +510,28 @@ app.use(router.middleware());
 const webgmeConfig = router.webgmeRouterConfig();
 ```
 
-### Enhanced Constraint Editor
+### Constraint Manager popups
 
-The Constraint Editor visualizer now includes AI assistance features:
+The Constraint Manager toolbar has two buttons.
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│ Constraint Editor   [Save] [Format] [Verify] | [AI Assist] [Explain]│
-├─────────────────────────────────────────────────────────────────────┤
-│                           │ AI Constraint Assistant               │
-│  1 │ // Domain Constraints│ ┌─────────────────────────────────┐ │
-│  2 │ constraintset ...    │ │ [Translate] [Explain]            │ │
-│  3 │                      │ │                                  │ │
-│  4 │ constraint Unique... │ │ Describe your constraint:        │ │
-│  5 │ forall s1 in State:  │ │ ┌──────────────────────────────┐ │ │
-│  6 │   forall s2 in ...   │ │ │ Every state must have a      │ │ │
-│  7 │     s1 == s2         │ │ │ unique name                  │ │ │
-│                           │ │ └──────────────────────────────┘ │ │
-│                           │ │ [Generate Constraint]            │ │
-│                           │ └─────────────────────────────────┘ │
-├─────────────────────────────────────────────────────────────────────┤
-│ No issues                                                           │
-└─────────────────────────────────────────────────────────────────────┘
-```
+**Explain** reads the constraint at the cursor, or the selection, and shows a sentence. That call does not use a model.
 
-Features:
-- **AI Assist Button**: Opens a side panel for natural language input
-- **Explain Button**: Explains selected constraint in plain English
-- **Pattern Matching**: Works without LLM for common constraint patterns
-- **LLM Integration**: Optional advanced translation with any LLM provider
+**Describe** opens a popup. The description is sent to `POST /leanllm/translate`, which calls an OpenAI-compatible chat endpoint and can insert the constraint it returns.
 
-#### Configuring AI in the Widget
+Point the endpoint at vLLM, llama.cpp, or Ollama in `config/config.default.js`:
 
-```typescript
-import ConstraintEditorWidget from 'webgme-lean';
-
-const widget = new ConstraintEditorWidget(container, {
-  logger: myLogger,
-  client: webgmeClient,
-  aiConfig: {
-    enabled: true,
-    apiEndpoint: '/api/constraints',  // REST API endpoint
-    // OR
-    llmProvider: myLLMProvider        // Direct LLM access
+```javascript
+config.rest.components.leanllm.options = {
+  llm: {
+    backend: 'openai',
+    baseUrl: 'http://127.0.0.1:8000/v1', // llama.cpp :8080, Ollama :11434
+    model: 'served-model-name',
+    apiKey: ''
   }
-});
+};
 ```
+
+`baseUrl` is the `/v1` root. The router posts to `{baseUrl}/chat/completions`. `LLM_BACKEND`, `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_API_KEY` override those fields when they are set. Those are the same names gmebot's router reads.
 
 ## Roadmap
 

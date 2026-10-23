@@ -165,10 +165,9 @@ define([
         return name || 'Domain';
     }
 
-    function generateFix(client) {
+    function collectConcepts(client) {
         var metaNodes = client.getAllMetaNodes(true) || {};
         var nodes = [];
-        var metamodel;
 
         Object.keys(metaNodes).forEach(function (path) {
             var node = metaNodes[path];
@@ -183,19 +182,35 @@ define([
             nodes.push(conceptFromNode(client, path, node, metaNodes));
         });
 
-        if (nodes.length === 0) {
+        return {
+            name: projectName(client),
+            rootType: nodes.length ? mainTypeOf(client, nodes) : '',
+            types: nodes
+        };
+    }
+
+    function generateFix(client) {
+        var collected = collectConcepts(client);
+        if (collected.types.length === 0) {
             return '';
         }
+        return leanFix.generateLeanTypes(leanFix.generateDomainDSL({
+            name: collected.name,
+            rootType: collected.rootType,
+            nodes: collected.types
+        }));
+    }
 
-        metamodel = {
-            name: projectName(client),
-            rootType: mainTypeOf(client, nodes),
-            nodes: nodes
+    function vocabulary(client) {
+        var collected = collectConcepts(client);
+        return {
+            rootType: collected.rootType,
+            types: collected.types
         };
-        return leanFix.generateLeanTypes(leanFix.generateDomainDSL(metamodel));
     }
 
     return {
-        generateFix: generateFix
+        generateFix: generateFix,
+        vocabulary: vocabulary
     };
 });

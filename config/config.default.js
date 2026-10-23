@@ -14,6 +14,18 @@ config.requirejsPaths['webgme-lean'] = './src/common';
 // Add Monaco Editor paths for RequireJS
 config.requirejsPaths['vs'] = './node_modules/monaco-editor/min/vs';
 
+// OpenAI-compatible chat completions. vLLM defaults to port 8000, llama.cpp to 8080,
+// Ollama to 11434. The path is /v1, and /chat/completions is added by the router.
+// LLM_BACKEND, LLM_BASE_URL, LLM_MODEL, and LLM_API_KEY override these when set.
+config.rest.components.leanllm.options = {
+    llm: {
+        backend: 'openai',
+        baseUrl: 'http://127.0.0.1:8000/v1',
+        model: '',
+        apiKey: ''
+    }
+};
+
 // The project database lives in the server process. A plugin worker opens the
 // project through that server, so it sees the same data.
 config.storage.database.type = 'memory';

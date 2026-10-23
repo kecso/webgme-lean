@@ -230,6 +230,24 @@ define([
         });
         this._toolbarItems.push(this.$btnTheme);
 
+        this.$btnExplain = toolBar.addButton({
+            title: 'Explain the constraint at the cursor',
+            icon: 'glyphicon glyphicon-info-sign',
+            clickFn: function () {
+                self._widget.explainAtCursor();
+            }
+        });
+        this._toolbarItems.push(this.$btnExplain);
+
+        this.$btnDescribe = toolBar.addButton({
+            title: 'Write a constraint from a description',
+            icon: 'glyphicon glyphicon-comment',
+            clickFn: function () {
+                self._widget.openDescribePopup();
+            }
+        });
+        this._toolbarItems.push(this.$btnDescribe);
+
         this._toolbarInitialized = true;
     };
 

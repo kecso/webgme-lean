@@ -37,6 +37,82 @@
     box-shadow: inset 3px 0 0 #4fc3f7;
 }
 
+.lean-nl-dialog {
+    position: absolute;
+    z-index: 30;
+    top: 12px;
+    right: 12px;
+    width: 380px;
+    max-width: calc(100% - 24px);
+    max-height: calc(100% - 24px);
+    display: flex;
+    flex-direction: column;
+    background: #f7f7f7;
+    color: #1e1e1e;
+    border: 1px solid #c8c8c8;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+    overflow: hidden;
+}
+
+.lean-nl-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    background: #337ab7;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.lean-nl-close {
+    border: 0;
+    background: transparent;
+    color: #ffffff;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.lean-nl-body {
+    padding: 10px;
+    overflow: auto;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.lean-nl-body textarea,
+.lean-nl-body pre {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 8px 0;
+    font-family: monospace;
+    font-size: 12px;
+}
+
+.lean-nl-body textarea {
+    min-height: 72px;
+    resize: vertical;
+}
+
+.lean-nl-body pre {
+    white-space: pre-wrap;
+    background: #ffffff;
+    border: 1px solid #dddddd;
+    border-radius: 4px;
+    padding: 8px;
+}
+
+.lean-nl-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.lean-nl-error {
+    color: #a94442;
+}
+
 .lean-edit-hint {
     position: absolute;
     z-index: 20;

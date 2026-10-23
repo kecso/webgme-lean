@@ -14,7 +14,12 @@
         "test": "test/plugins/GenerateConstraintLanguage"
       }
     },
-    "routers": {},
+    "routers": {
+      "leanllm": {
+        "src": "src/routers/leanllm",
+        "mount": "leanllm"
+      }
+    },
     "seeds": {
       "StateChart": {
         "src": "src/seeds/StateChart"

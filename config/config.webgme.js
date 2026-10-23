@@ -9,6 +9,12 @@ var config = require('webgme/config/config.default'),
 config.plugin.basePaths.push(__dirname + '/../src/plugins');
 config.seedProjects.basePaths.push(__dirname + '/../src/seeds/StateChart');
 
+config.rest.components['leanllm'] = {
+    src: __dirname + '/../src/routers/leanllm/leanllm.js',
+    mount: 'leanllm',
+    options: {}
+};
+
 // Visualizer descriptors
 config.visualization.visualizerDescriptors.push(__dirname + '/../src/visualizers/Visualizers.json');
 
