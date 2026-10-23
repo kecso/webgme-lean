@@ -1,0 +1,11 @@
+// Source constraints for the turnstile example.
+// Vocabulary is the StateChart META: StateChart contains Init, State, and Transition.
+
+constraintset TurnstileConstraints for StateChart
+
+constraint EveryTransitionHasEvent [error]
+forall t in Transition:
+  t.event != ""
+
+constraint ExactlyOneInit [error]
+count(Init) == 1

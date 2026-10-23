@@ -52,7 +52,7 @@ export {
 export { 
   VerificationPlugin,
   PluginConfig 
-} from './plugin/VerificationPlugin';
+} from './plugins/VerificationPlugin';
 
 export {
   ConstraintLanguageServer,
@@ -70,13 +70,13 @@ export {
   languageConfiguration,
   darkTheme,
   lightTheme
-} from './visualizer/monaco-config';
+} from './visualizers/monaco-config';
 
 export {
   ConstraintEditor,
   ConstraintEditorWidget,
   ConstraintEditorControl
-} from './visualizer/ConstraintEditor';
+} from './visualizers/ConstraintEditor';
 
 // NL Translation module
 export {

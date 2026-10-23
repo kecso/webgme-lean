@@ -1,28 +1,43 @@
 /*globals define, WebGMEGlobal*/
 /**
- * LeanEditor Control
+ * Constraint manager control.
  *
- * WebGME control that manages communication between the Lean Editor widget
- * and the WebGME client. Handles reading/writing the 'lean' registry from
- * the project's Root node.
+ * Reads and writes the constraint dialect on the project root.
+ * The generated Lean program is not loaded into the editor.
  */
 
 define([
     'js/Constants',
     'js/Utils/GMEConcepts',
-    'js/NodePropertyNames',
-    'webgme-lean/leanDocument',
-    'webgme-lean/metaLean'
+    'js/NodePropertyNames'
 ], function (
     CONSTANTS,
     GMEConcepts,
-    nodePropertyNames,
-    leanDocument,
-    metaLean
+    nodePropertyNames
 ) {
     'use strict';
 
-    var REGISTRY_KEY = 'lean';
+    var REGISTRY_KEY = 'constraints';
+
+    function constraintText(raw) {
+        if (typeof raw !== 'string' || raw === '') {
+            return '';
+        }
+        var trimmed = raw.trim();
+        if (trimmed.charAt(0) === '{') {
+            try {
+                var parsed = JSON.parse(trimmed);
+                if (parsed && typeof parsed === 'object' &&
+                        (Object.prototype.hasOwnProperty.call(parsed, 'fix') ||
+                            Object.prototype.hasOwnProperty.call(parsed, 'user'))) {
+                    return '';
+                }
+            } catch (err) {
+                return raw;
+            }
+        }
+        return raw;
+    }
 
     function LeanEditorControl(options) {
         this._logger = options.logger.fork('Control');
@@ -85,28 +100,15 @@ define([
             return;
         }
 
-        var doc = leanDocument.parse(rootNode.getRegistry(REGISTRY_KEY));
+        var text = constraintText(rootNode.getRegistry(REGISTRY_KEY));
+        this._widget.setContent(text);
 
-        if (!doc.fix) {
-            try {
-                doc.fix = metaLean.generateFix(this._client) || '';
-            } catch (err) {
-                this._logger.error('Could not prefill the generated Lean text', err);
-            }
-        }
-
-        if (this._widget.setParts) {
-            this._widget.setParts(doc.fix, doc.user);
-        } else {
-            this._widget.setContent(leanDocument.compose(doc.fix, doc.user));
-        }
-
-        this._logger.debug('Loaded lean content, fix length:', (doc.fix || '').length);
+        this._logger.debug('Loaded constraints, length:', text.length);
     };
 
-    LeanEditorControl.prototype.saveContent = function (doc) {
+    LeanEditorControl.prototype.saveContent = function (text) {
         var self = this;
-        var stored = leanDocument.serialize(doc || {fix: '', user: ''});
+        var stored = typeof text === 'string' ? text : '';
 
         if (typeof this._rootNodeId !== 'string') {
             this._logger.error('No root node to save to');
@@ -115,10 +117,10 @@ define([
 
         return new Promise(function (resolve, reject) {
             try {
-                self._client.startTransaction('Update lean registry');
+                self._client.startTransaction('Update constraints');
                 self._client.setRegistry(self._rootNodeId, REGISTRY_KEY, stored);
-                self._client.completeTransaction('Updated lean registry');
-                self._logger.debug('Saved lean content');
+                self._client.completeTransaction('Updated constraints');
+                self._logger.debug('Saved constraints');
                 resolve();
             } catch (err) {
                 self._logger.error('Failed to save:', err);
@@ -133,13 +135,11 @@ define([
         }
 
         var rootNode = this._client.getNode(this._rootNodeId);
-        var doc;
         if (!rootNode) {
             return '';
         }
 
-        doc = leanDocument.parse(rootNode.getRegistry(REGISTRY_KEY));
-        return leanDocument.compose(doc.fix, doc.user);
+        return constraintText(rootNode.getRegistry(REGISTRY_KEY));
     };
 
     LeanEditorControl.prototype._stateActiveObjectChanged = function (model, activeObjectId) {
@@ -209,7 +209,7 @@ define([
         this._toolbarItems.push(toolBar.addSeparator());
 
         this.$btnSave = toolBar.addButton({
-            title: 'Save the Lean text on the project root',
+            title: 'Save the constraints on the project root',
             icon: 'glyphicon glyphicon-floppy-disk',
             clickFn: function () {
                 self._widget.saveContent();

@@ -1,21 +1,18 @@
 /*globals define, require*/
 /**
- * LeanEditor Widget
+ * Constraint manager editor.
  *
- * Monaco-based editor widget for viewing and editing Lean content stored
- * in the 'lean' registry of the WebGME project's Root node.
- *
- * The editor fills the panel. Saving is the WebGME toolbar button.
+ * The text in the panel is the constraint dialect stored on the project root.
+ * Lean is produced later, from this text and the metamodel, and is not shown here.
  */
 
 define([
-    'css!./styles/LeanEditorWidget.css',
-    'webgme-lean/leanDocument'
-], function (_css, leanDocument) {
+    'css!./styles/LeanEditorWidget.css'
+], function () {
     'use strict';
 
     var WIDGET_CLASS = 'lean-editor';
-    var LANGUAGE_ID = 'lean4';
+    var LANGUAGE_ID = 'webgme-constraint';
 
     function LeanEditorWidget(logger, container, client) {
         this._logger = logger.fork('Widget');
@@ -26,8 +23,6 @@ define([
         this._monaco = null;
         this._editor = null;
         this._content = '';
-        this._fix = '';
-        this._user = '';
         this._isReadOnly = false;
         this._theme = 'lean-dark';
         this._guard = false;
@@ -49,8 +44,7 @@ define([
 
     LeanEditorWidget.prototype._loadMonaco = function () {
         var self = this;
-        
-        // Use the configured requirejs path
+
         require(['vs/editor/editor.main'], function (monaco) {
             self._monaco = monaco;
             self._initializeEditor();
@@ -62,7 +56,7 @@ define([
     LeanEditorWidget.prototype._initializeEditor = function () {
         var self = this;
 
-        this._registerLeanLanguage();
+        this._registerConstraintLanguage();
 
         this._editor = this._monaco.editor.create(this._editorEl, {
             value: this._content,
@@ -85,14 +79,13 @@ define([
             self.saveContent();
         });
 
-        this._guardGenerated();
         this._applyTheme(this._theme);
         this._updateLayout();
 
         this._logger.debug('Monaco editor initialized');
     };
 
-    LeanEditorWidget.prototype._registerLeanLanguage = function () {
+    LeanEditorWidget.prototype._registerConstraintLanguage = function () {
         var monaco = this._monaco;
 
         if (monaco.languages.getLanguages().some(function (lang) { return lang.id === LANGUAGE_ID; })) {
@@ -103,147 +96,64 @@ define([
 
         monaco.languages.setMonarchTokensProvider(LANGUAGE_ID, {
             defaultToken: '',
-            tokenPostfix: '.lean',
-
+            tokenPostfix: '.constraint',
             keywords: [
-                'theorem', 'lemma', 'def', 'definition', 'axiom', 'constant',
-                'structure', 'class', 'instance', 'inductive', 'coinductive',
-                'where', 'with', 'match', 'if', 'then', 'else', 'do', 'let',
-                'in', 'have', 'show', 'by', 'fun', 'assume', 'return',
-                'namespace', 'section', 'end', 'open', 'import', 'export',
-                'universe', 'variable', 'variables', 'implicit', 'explicit',
-                'private', 'protected', 'public', 'mutual', 'partial',
-                'noncomputable', 'unsafe', 'example', 'deriving', 'extends',
-                'attribute', 'syntax', 'macro', 'macro_rules', 'notation',
-                'infix', 'infixl', 'infixr', 'prefix', 'postfix',
-                'set_option', 'abbrev', 'opaque', 'scoped', 'local'
+                'constraintset', 'constraint', 'for', 'define',
+                'forall', 'exists', 'in', 'where',
+                'implies', 'and', 'or', 'not',
+                'true', 'false', 'null'
             ],
-
-            builtinTypes: [
-                'Type', 'Prop', 'Sort', 'Nat', 'Int', 'Bool', 'String', 'Char',
-                'Float', 'Unit', 'List', 'Array', 'Option', 'IO', 'True', 'False'
+            functions: [
+                'count', 'isEmpty', 'all', 'any', 'unique',
+                'reachableVia', 'reachableBy', 'connected', 'pointingTo',
+                'children', 'parent', 'siblings'
             ],
-
-            tactics: [
-                'apply', 'exact', 'intro', 'intros', 'cases', 'induction',
-                'rfl', 'rw', 'rewrite', 'simp', 'simpa', 'ring', 'linarith',
-                'omega', 'decide', 'native_decide', 'trivial', 'constructor',
-                'exists', 'use', 'refine', 'sorry', 'admit', 'done',
-                'contradiction', 'exfalso', 'absurd', 'unfold', 'dsimp',
-                'conv', 'calc', 'suffices', 'obtain', 'rcases', 'ext', 'funext',
-                'congr', 'norm_num', 'positivity', 'push_neg', 'contrapose',
-                'by_contra', 'by_cases', 'split', 'left', 'right', 'assumption',
-                'exact?', 'apply?', 'rw?', 'simp?', 'aesop', 'tauto', 'first',
-                'repeat', 'iterate', 'try', 'focus', 'all_goals', 'any_goals',
-                'fail', 'trace'
-            ],
-
-            operators: [
-                '=', '≠', '!=', '<', '>', '≤', '<=', '≥', '>=',
-                '+', '-', '*', '/', '%', '^', '∧', '&&', '∨', '||', '¬', '!',
-                '→', '->', '←', '<-', '↔', '<->', '∀', '∃', 'λ',
-                '∈', '∉', '⊂', '⊆', '⊃', '⊇', '∪', '∩',
-                ':=', '|', '.', ',', ';', ':', '::', '..', '…',
-                '⟨', '⟩', '⦃', '⦄', '«', '»'
-            ],
-
-            symbols: /[=><!~?:&|+\-*\/\^%@#∀∃λ∈∉⊂⊆⊃⊇∪∩∧∨¬→←↔≤≥≠]+/,
-
-            escapes: /\\(?:[abfnrtv\\"']|x[0-9A-Fa-f]{1,4}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})/,
-
+            operators: ['==', '!=', '<=', '>=', '<', '>', '->', '=>'],
+            symbols: /[=><!~?:&|+\-*\/\^%]+/,
             tokenizer: {
                 root: [
-                    [/--.*$/, 'comment'],
-                    [/\/-/, 'comment', '@blockComment'],
-
-                    [/#\w+/, 'keyword.directive'],
-
-                    [/[a-z_$][\w$']*/, {
+                    [/\/\/.*$/, 'comment'],
+                    [/constraintset/, 'keyword'],
+                    [/constraint/, 'keyword'],
+                    [/\[(?:error|warning|info)\]/, 'keyword'],
+                    [/[a-z_$][\w$]*/, {
                         cases: {
                             '@keywords': 'keyword',
-                            '@tactics': 'keyword.tactic',
+                            '@functions': 'keyword.tactic',
                             '@default': 'identifier'
                         }
                     }],
-
-                    [/[A-Z][\w$']*/, {
-                        cases: {
-                            '@builtinTypes': 'type.builtin',
-                            '@default': 'type'
-                        }
-                    }],
-
-                    { include: '@whitespace' },
-
-                    [/[{}()\[\]⟨⟩⦃⦄«»]/, '@brackets'],
+                    [/[A-Z][\w$]*/, 'type'],
+                    [/[ \t\r\n]+/, 'white'],
+                    [/[{}()\[\]]/, '@brackets'],
                     [/@symbols/, {
                         cases: {
                             '@operators': 'operator',
                             '@default': ''
                         }
                     }],
-
                     [/\d*\.\d+([eE][\-+]?\d+)?/, 'number.float'],
                     [/\d+/, 'number'],
-
-                    [/[;,.]/, 'delimiter'],
-
                     [/"([^"\\]|\\.)*$/, 'string.invalid'],
-                    [/"/, 'string', '@string'],
-                    [/'[^']*'/, 'string.char']
+                    [/"/, 'string', '@string']
                 ],
-
-                blockComment: [
-                    [/[^\/-]+/, 'comment'],
-                    [/\/-/, 'comment', '@push'],
-                    [/-\//, 'comment', '@pop'],
-                    [/[\/-]/, 'comment']
-                ],
-
                 string: [
                     [/[^\\"]+/, 'string'],
-                    [/@escapes/, 'string.escape'],
-                    [/\\./, 'string.escape.invalid'],
+                    [/\\./, 'string.escape'],
                     [/"/, 'string', '@pop']
-                ],
-
-                whitespace: [
-                    [/[ \t\r\n]+/, 'white']
                 ]
             }
         });
 
         monaco.languages.setLanguageConfiguration(LANGUAGE_ID, {
-            comments: {
-                lineComment: '--',
-                blockComment: ['/-', '-/']
-            },
-            brackets: [
-                ['{', '}'],
-                ['[', ']'],
-                ['(', ')'],
-                ['⟨', '⟩'],
-                ['⦃', '⦄']
-            ],
+            comments: { lineComment: '//' },
+            brackets: [['{', '}'], ['[', ']'], ['(', ')']],
             autoClosingPairs: [
                 { open: '{', close: '}' },
                 { open: '[', close: ']' },
                 { open: '(', close: ')' },
-                { open: '"', close: '"' },
-                { open: '⟨', close: '⟩' },
-                { open: '⦃', close: '⦄' }
-            ],
-            surroundingPairs: [
-                { open: '{', close: '}' },
-                { open: '[', close: ']' },
-                { open: '(', close: ')' },
-                { open: '"', close: '"' },
-                { open: '⟨', close: '⟩' }
-            ],
-            indentationRules: {
-                increaseIndentPattern: /^\s*(theorem|lemma|def|structure|class|instance|inductive|where|namespace|section|if|match|do|by)\b/,
-                decreaseIndentPattern: /^\s*(end|else)\b/
-            }
+                { open: '"', close: '"' }
+            ]
         });
 
         monaco.editor.defineTheme('lean-dark', {
@@ -251,27 +161,19 @@ define([
             inherit: true,
             rules: [
                 { token: 'keyword', foreground: 'C586C0' },
-                { token: 'keyword.tactic', foreground: 'DCDCAA', fontStyle: 'italic' },
-                { token: 'keyword.directive', foreground: '569CD6' },
+                { token: 'keyword.tactic', foreground: 'DCDCAA' },
                 { token: 'type', foreground: '4EC9B0' },
-                { token: 'type.builtin', foreground: '4EC9B0', fontStyle: 'bold' },
                 { token: 'identifier', foreground: '9CDCFE' },
                 { token: 'number', foreground: 'B5CEA8' },
-                { token: 'number.float', foreground: 'B5CEA8' },
                 { token: 'string', foreground: 'CE9178' },
-                { token: 'string.char', foreground: 'CE9178' },
-                { token: 'string.escape', foreground: 'D7BA7D' },
                 { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
-                { token: 'operator', foreground: 'D4D4D4' },
-                { token: 'delimiter', foreground: 'D4D4D4' }
+                { token: 'operator', foreground: 'D4D4D4' }
             ],
             colors: {
                 'editor.background': '#1E1E1E',
                 'editor.foreground': '#D4D4D4',
                 'editorLineNumber.foreground': '#858585',
-                'editorCursor.foreground': '#AEAFAD',
-                'editor.selectionBackground': '#264F78',
-                'editor.inactiveSelectionBackground': '#3A3D41'
+                'editorCursor.foreground': '#AEAFAD'
             }
         });
 
@@ -280,24 +182,19 @@ define([
             inherit: true,
             rules: [
                 { token: 'keyword', foreground: 'AF00DB' },
-                { token: 'keyword.tactic', foreground: '795E26', fontStyle: 'italic' },
-                { token: 'keyword.directive', foreground: '0000FF' },
+                { token: 'keyword.tactic', foreground: '795E26' },
                 { token: 'type', foreground: '267F99' },
-                { token: 'type.builtin', foreground: '267F99', fontStyle: 'bold' },
                 { token: 'identifier', foreground: '001080' },
                 { token: 'number', foreground: '098658' },
                 { token: 'string', foreground: 'A31515' },
                 { token: 'comment', foreground: '008000', fontStyle: 'italic' },
-                { token: 'operator', foreground: '000000' },
-                { token: 'delimiter', foreground: '000000' }
+                { token: 'operator', foreground: '000000' }
             ],
             colors: {
                 'editor.background': '#FFFFFF',
                 'editor.foreground': '#000000'
             }
         });
-
-        this._logger.debug('Lean language registered');
     };
 
     LeanEditorWidget.prototype.toggleTheme = function () {
@@ -327,103 +224,16 @@ define([
         this._control = control;
     };
 
-    LeanEditorWidget.prototype.setParts = function (fix, user) {
-        this._fix = fix || '';
-        this._user = user || '';
-        if (!this._fix) {
-            this.setContent(this._user || '');
-            return;
-        }
-        this.setContent(leanDocument.compose(this._fix, this._user));
-    };
-
     LeanEditorWidget.prototype.setContent = function (content) {
         this._content = content || '';
 
         if (this._editor) {
-            var currentValue = this._editor.getValue();
-            if (currentValue !== this._content) {
+            if (this._editor.getValue() !== this._content) {
                 this._guard = true;
                 this._editor.setValue(this._content);
                 this._guard = false;
             }
         }
-    };
-
-    LeanEditorWidget.prototype._guardGenerated = function () {
-        var self = this;
-        var monaco = this._monaco;
-        var KeyCode = monaco.KeyCode;
-        var navigation = {};
-        [
-            KeyCode.LeftArrow, KeyCode.RightArrow, KeyCode.UpArrow, KeyCode.DownArrow,
-            KeyCode.PageUp, KeyCode.PageDown, KeyCode.Home, KeyCode.End, KeyCode.Escape,
-            KeyCode.Tab
-        ].forEach(function (code) {
-            navigation[code] = true;
-        });
-
-        this._editor.onKeyDown(function (event) {
-            if (self._isReadOnly || !self._fix || self._inEditableSelection()) {
-                return;
-            }
-            if (navigation[event.keyCode] || event.ctrlKey || event.metaKey || event.altKey) {
-                return;
-            }
-            event.preventDefault();
-            event.stopPropagation();
-            self._placeInEditable();
-        });
-
-        this._editor.onDidChangeModelContent(function () {
-            var next;
-            var parts;
-            var restored;
-
-            if (self._guard || !self._fix) {
-                return;
-            }
-            next = self._editor.getValue();
-            parts = leanDocument.splitDocument(next, self._fix);
-            if (parts) {
-                self._user = parts.user;
-            }
-            restored = leanDocument.protect(self._fix, self._user, next);
-            if (restored === next) {
-                return;
-            }
-            self._guard = true;
-            self._editor.setValue(restored);
-            self._guard = false;
-            self._placeInEditable();
-        });
-    };
-
-    LeanEditorWidget.prototype._editableLines = function () {
-        return leanDocument.editableLines(this._fix, this._editor ? this._editor.getValue() : this._content);
-    };
-
-    LeanEditorWidget.prototype._inEditableSelection = function () {
-        var lines = this._editableLines();
-        var selection = this._editor && this._editor.getSelection();
-        if (!lines || !selection || lines.first > lines.last) {
-            return !this._fix;
-        }
-        return selection.startLineNumber >= lines.first &&
-            selection.endLineNumber <= lines.last;
-    };
-
-    LeanEditorWidget.prototype._placeInEditable = function () {
-        var lines = this._editableLines();
-        if (!lines || !this._editor) {
-            return;
-        }
-        var line = lines.first <= lines.last ? lines.first : lines.last;
-        if (line < 1) {
-            return;
-        }
-        this._editor.setPosition({ lineNumber: line, column: 1 });
-        this._editor.revealLine(line);
     };
 
     LeanEditorWidget.prototype.getContent = function () {
@@ -446,11 +256,7 @@ define([
             return;
         }
 
-        var parts = leanDocument.splitDocument(this.getContent(), this._fix);
-        if (!parts) {
-            parts = {fix: this._fix || '', user: this._user || ''};
-        }
-        this._control.saveContent(parts)
+        this._control.saveContent(this.getContent())
             .then(function () {
                 self._logger.debug('Saved');
             })
@@ -477,12 +283,10 @@ define([
     };
 
     LeanEditorWidget.prototype.onActivate = function () {
-        this._logger.debug('LeanEditorWidget activated');
         this._updateLayout();
     };
 
     LeanEditorWidget.prototype.onDeactivate = function () {
-        this._logger.debug('LeanEditorWidget deactivated');
     };
 
     LeanEditorWidget.prototype.destroy = function () {

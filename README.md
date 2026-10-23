@@ -196,7 +196,7 @@ The project includes a full-featured WebGME visualizer with Monaco Editor (VS Co
 
 ### Installation
 
-1. Copy `src/visualizer/ConstraintEditor` to your WebGME project's `src/visualizers/`
+1. The editor lives in `src/visualizers/ConstraintEditor`
 2. Install Monaco Editor:
    ```bash
    npm install monaco-editor
@@ -241,7 +241,7 @@ The editor provides a VS Code-like experience:
 
 ### Installation
 
-1. Copy `src/plugin/VerificationPlugin` to your WebGME project's `src/plugins/`
+1. The verifier lives in `src/plugins/VerificationPlugin`
 2. Add to your WebGME configuration:
 
 ```javascript
@@ -275,11 +275,12 @@ if (report.summary.failed > 0) {
 
 ## Example: Statechart Domain
 
-See `examples/statechart/` for a complete example. `statechart.webgmex` is the WebGME project. Its META defines `StateChart`, `State`, `Init`, `End`, and `Transition` (`src` and `dst` point at `State`; `event` and `guard` are attributes of `Transition`). `StateChart` contains `Init`, `State`, and `Transition`.
+See `examples/statechart/` for the worked example. The importable project is the `StateChart` seed at `src/seeds/StateChart/StateChart.webgmex`. Its META defines `StateChart`, `State`, `Init`, `End`, and `Transition` (`src` and `dst` point at `State`; `event` and `guard` are attributes of `Transition`). `StateChart` contains `Init`, `State`, and `Transition`.
 
-- `statechart.webgmex` - WebGME project
+- `src/seeds/StateChart/StateChart.webgmex` - WebGME seed project
 - `metamodel.json` - the same vocabulary for the file-based tools
 - `constraints.wgl` - domain constraints
+- `turnstile.wgl`, `counter.wgl` - the constraint text for those two examples; the `.lean` files are the encoded programs
 - `sample-model.json` - example model (Traffic Light)
 
 ### Sample Constraints
@@ -306,7 +307,7 @@ forall t in Transition:
 ### Prerequisites
 
 - Node.js >= 18
-- Lean 4 (for verification)
+- [elan](https://lean-lang.org/install/) and Lean 4.12.0, pinned by `lean/lean-toolchain`
 
 ### Setup
 
@@ -328,12 +329,26 @@ npm run build
 npm test
 ```
 
-### Lean Setup
+### Lean setup
+
+Install [elan](https://lean-lang.org/install/). Open a new terminal afterward so `~/.elan/bin` is on `PATH`. `lake: command not found` means that directory is not on `PATH` yet.
+
+The first command downloads the toolchain named in `lean/lean-toolchain` (Lean 4.12.0):
 
 ```bash
 cd lean
+lake update
 lake build
 ```
+
+Check a self-contained example from that same directory. A successful check prints nothing:
+
+```bash
+lake env lean ../examples/statechart/Turnstile.lean
+lake env lean ../examples/statechart/Counter.lean
+```
+
+Details, including what a `theorem ... := rfl` establishes, are in [Checking examples](docs/checking-examples.md).
 
 ## API Reference
 
@@ -365,6 +380,8 @@ const leanCode = translateConstraintSet(constraintSet, domainDSL);
 ## Documentation
 
 - **[Constraint Tutorial](docs/constraint-tutorial.md)** — Complete guide to writing constraints with examples
+- **[Lean encoding](docs/lean-encoding.md)** — How a WebGME metamodel becomes the generated Lean program, including containment
+- **[Checking examples](docs/checking-examples.md)** — How to run the `.lean` examples with Lean 4.12.0
 - **[DSL Reference](#constraint-language)** — Quick reference for the constraint language
 
 ## AI-Powered Constraint Authoring

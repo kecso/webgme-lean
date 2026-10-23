@@ -1,5 +1,5 @@
 // Statechart domain constraints.
-// The vocabulary is the META of examples/statechart/statechart.webgmex:
+// The vocabulary is the META of the StateChart seed (src/seeds/StateChart/StateChart.webgmex):
 // StateChart contains Init, State, and Transition. Init and End specialize State.
 // Transition.event and Transition.guard are attributes. src and dst point at State.
 

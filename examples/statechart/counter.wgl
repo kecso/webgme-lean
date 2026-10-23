@@ -1,0 +1,10 @@
+// Source constraints for the counter example.
+// End extends State. The constraint names End directly; the model stores that node as a State child.
+
+constraintset CounterConstraints for StateChart
+
+constraint ExactlyOneInit [error]
+count(Init) == 1
+
+constraint ExactlyOneEnd [error]
+count(End) == 1

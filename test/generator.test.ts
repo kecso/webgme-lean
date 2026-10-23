@@ -111,6 +111,14 @@ describe('DSL Generator', () => {
 
       expect(leanCode).toContain('namespace TestDomain');
       expect(leanCode).toContain('class _Contained');
+      expect(leanCode).toContain('-- FCO definitions');
+      expect(leanCode).toContain('-- Root definitions');
+      expect(leanCode).toContain('-- Element definitions');
+      expect(leanCode.indexOf('-- Element definitions')).toBeLessThan(leanCode.indexOf('-- Root definitions'));
+      expect(leanCode.indexOf('-- Root definitions')).toBeLessThan(leanCode.indexOf('inductive _RootChild'));
+      expect(leanCode.indexOf('inductive _RootChild')).toBeLessThan(leanCode.indexOf('instance : _Contained Root Element'));
+      expect(leanCode).not.toContain('/-!');
+      expect(leanCode).not.toContain('Not a meta');
       expect(leanCode).not.toContain('-- user defined');
       expect(leanCode).not.toContain('end TestDomain');
       expect(leanCode).not.toContain('_atLeast_');
@@ -124,6 +132,10 @@ describe('DSL Generator', () => {
 
       expect(dsl.mainType).toBe('StateChart');
       expect(leanCode).toContain('namespace StatechartDomain');
+      expect(leanCode).toContain('-- State definitions');
+      expect(leanCode).toContain('-- StateChart definitions');
+      expect(leanCode.indexOf('-- StateChart definitions')).toBeLessThan(leanCode.indexOf('inductive _StateChartChild'));
+      expect(leanCode.indexOf('inductive _StateChartChild')).toBeLessThan(leanCode.indexOf('structure StateChart'));
       expect(leanCode).toContain('structure StateChart');
       expect(leanCode).not.toContain('structure Root');
       expect(leanCode).not.toContain('ROOT');

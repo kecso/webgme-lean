@@ -178,24 +178,6 @@ var WebGMELeanFix = (() => {
   function techType(name) {
     return `_${name}`;
   }
-  function joinAnd(items) {
-    if (items.length <= 1) {
-      return items.join("");
-    }
-    if (items.length === 2) {
-      return `${items[0]} and ${items[1]}`;
-    }
-    return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
-  }
-  function joinOr(items) {
-    if (items.length <= 1) {
-      return items.join("");
-    }
-    if (items.length === 2) {
-      return `${items[0]} or ${items[1]}`;
-    }
-    return `${items.slice(0, -1).join(", ")}, or ${items[items.length - 1]}`;
-  }
   function reaches(start, goal, adjacent) {
     if (start === goal) {
       return true;
@@ -270,26 +252,12 @@ var WebGMELeanFix = (() => {
     const concepts = types.filter((type) => type.name !== "FCO").map((type) => toConcept(type, type.baseType || "FCO"));
     const lines = [];
     const namespace = leanIdent(dsl.name || "Domain");
-    lines.push("/-!");
-    lines.push(`# ${namespace}`);
-    lines.push("");
-    lines.push("Meta concepts are structures, and `extends` follows the base chain from FCO.");
-    lines.push("A name that starts with `_` is technical. It is not a meta concept or a meta attribute.");
-    lines.push("`_id` is identity. `_type` is the concept the node was created as.");
-    lines.push("Attributes, pointers, and sets are fields of the concept.");
-    lines.push("`_XChild` and `_Contained` are containment.");
-    lines.push("A pointer's type is its meta target. `Coe` stores a descendant there and keeps the");
-    lines.push("target's fields, including `_type`.");
-    lines.push("-/");
-    lines.push("");
     lines.push(`namespace ${namespace}`);
     lines.push("");
-    lines.push("-- technical: identity of a node. Not a meta attribute.");
     lines.push(`structure ${techType("NodeId")} where`);
     lines.push("  path : String");
     lines.push("  deriving DecidableEq, Repr");
     lines.push("");
-    lines.push("-- technical: the containment lookup. Not a meta concept.");
     lines.push(`class ${techType("Contained")} (parent child : Type) where`);
     lines.push("  children : parent \u2192 List child");
     lines.push("");
@@ -322,10 +290,6 @@ var WebGMELeanFix = (() => {
       const owner = leanIdent(concept.name);
       const parent = concept.base ? leanIdent(concept.base) : null;
       const fields = [];
-      const technicalFields = [
-        ...parent ? [] : ["_id", "_type"],
-        ...concept.containments.length > 0 ? ["_containment"] : []
-      ];
       if (!parent) {
         fields.push(`  _id : ${techType("NodeId")}`);
         fields.push(`  _type : ${techType("Type")}`);
@@ -342,10 +306,6 @@ var WebGMELeanFix = (() => {
       }
       if (concept.containments.length > 0) {
         fields.push(`  _containment : List ${techType(`${owner}Child`)}`);
-      }
-      if (technicalFields.length > 0) {
-        const verb = technicalFields.length > 1 ? "are" : "is";
-        lines.push(`-- ${joinAnd(technicalFields)} ${verb} technical.`);
       }
       if (parent && fields.length === 0) {
         lines.push(`structure ${owner} extends ${parent} deriving Repr`);
@@ -368,7 +328,80 @@ var WebGMELeanFix = (() => {
         lines.push("");
       }
     };
-    lines.push("-- technical: the concept a node was created as. Coercion keeps this field.");
+    const emitContained = (concept) => {
+      if (concept.containments.length === 0) {
+        return;
+      }
+      const owner = leanIdent(concept.name);
+      for (const child of concept.containments) {
+        const childName = leanIdent(child.childType);
+        const ctor = ctorIdent(child.childType);
+        lines.push(`instance : ${techType("Contained")} ${owner} ${childName} where`);
+        lines.push("  children parent := parent._containment.filterMap fun");
+        lines.push(`    | .${ctor} node => some node`);
+        lines.push("    | _ => none");
+        lines.push("");
+      }
+    };
+    const mainName = leanIdent(dsl.mainType || namespace);
+    const mainConcept = [fco, ...concepts].find((concept) => leanIdent(concept.name) === mainName);
+    const directChildren = new Set(
+      (mainConcept ? mainConcept.containments : []).map((child) => leanIdent(child.childType))
+    );
+    const emitBounds = (concept) => {
+      const owner = leanIdent(concept.name);
+      if (owner !== mainName && !directChildren.has(owner)) {
+        return;
+      }
+      const defOwner = owner === mainName ? mainName : `${mainName}_${owner}`;
+      const emitDef = (name, body) => {
+        lines.push(`def ${name} (m : ${mainName}) : Bool :=`);
+        for (const line of body) {
+          lines.push(`  ${line}`);
+        }
+        lines.push("");
+      };
+      for (const child of concept.containments) {
+        const childName = leanIdent(child.childType);
+        const lengthOf = owner === mainName ? `(_Contained.children (child := ${childName}) m).length` : `(_Contained.children (child := ${childName}) node).length`;
+        const body = (check) => owner === mainName ? [check] : [`(_Contained.children (child := ${owner}) m).all fun node =>`, `  ${check}`];
+        if (child.min > 0) {
+          emitDef(`${defOwner}_atLeast_${child.min}_${childName}`, body(`${lengthOf} \u2265 ${child.min}`));
+        }
+        if (child.max !== null) {
+          emitDef(`${defOwner}_atMost_${child.max}_${childName}`, body(`${lengthOf} \u2264 ${child.max}`));
+        }
+      }
+      for (const set of concept.sets) {
+        const lengthOf = owner === mainName ? `(m.${set.name}).length` : `(node.${set.name}).length`;
+        const setOwner = owner === mainName ? `${mainName}_${set.name}` : `${mainName}_${owner}_${set.name}`;
+        const body = (check) => owner === mainName ? [check] : [`(_Contained.children (child := ${owner}) m).all fun node =>`, `  ${check}`];
+        if ((set.min ?? 0) > 0) {
+          emitDef(`${setOwner}_atLeast_${set.min}`, body(`${lengthOf} \u2265 ${set.min}`));
+        }
+        if (set.max != null) {
+          emitDef(`${setOwner}_atMost_${set.max}`, body(`${lengthOf} \u2264 ${set.max}`));
+        }
+      }
+    };
+    const emitConcept = (concept) => {
+      const typeName = leanIdent(concept.name);
+      lines.push(`-- ${typeName} definitions`);
+      if (concept.containments.length > 0 && !emitted.has(techType(`${typeName}Child`))) {
+        const childType = techType(`${typeName}Child`);
+        lines.push(`inductive ${childType} where`);
+        for (const child of concept.containments) {
+          lines.push(`  | ${ctorIdent(child.childType)} : ${leanIdent(child.childType)} \u2192 ${childType}`);
+        }
+        lines.push("  deriving Repr");
+        lines.push("");
+        emitted.add(childType);
+      }
+      emitStructure(concept);
+      emitContained(concept);
+      emitBounds(concept);
+      emitted.add(typeName);
+    };
     lines.push(`inductive ${techType("Type")} where`);
     for (const conceptName of ["FCO", ...ordered.map((concept) => concept.name)]) {
       lines.push(`  | ${ctorIdent(conceptName)}`);
@@ -376,8 +409,7 @@ var WebGMELeanFix = (() => {
     lines.push("  deriving DecidableEq, Repr");
     lines.push("");
     emitted.clear();
-    emitStructure(fco);
-    emitted.add("FCO");
+    emitConcept(fco);
     const waiting = new Map(ordered.map((concept) => [leanIdent(concept.name), concept]));
     const structReady = (typeName) => !waiting.has(typeName);
     while (waiting.size > 0) {
@@ -402,18 +434,8 @@ var WebGMELeanFix = (() => {
           if (!childrenReady) {
             continue;
           }
-          const childType = techType(`${typeName}Child`);
-          lines.push(`-- technical: the children of ${typeName}. Not a meta concept.`);
-          lines.push(`inductive ${childType} where`);
-          for (const child of concept.containments) {
-            lines.push(`  | ${ctorIdent(child.childType)} : ${leanIdent(child.childType)} \u2192 ${childType}`);
-          }
-          lines.push("  deriving Repr");
-          lines.push("");
-          emitted.add(childType);
         }
-        emitStructure(concept);
-        emitted.add(typeName);
+        emitConcept(concept);
         waiting.delete(typeName);
         progressed = true;
       }
@@ -425,8 +447,6 @@ var WebGMELeanFix = (() => {
           if (members.some((member) => waiting.has(leanIdent(member)))) {
             continue;
           }
-          const memberNames = members.map((member) => leanIdent(member));
-          lines.push(`-- technical: a pointer with more than one target type: ${joinOr(memberNames)}.`);
           lines.push(`inductive ${refType} where`);
           for (const member of members) {
             lines.push(`  | ${ctorIdent(member)} : ${leanIdent(member)} \u2192 ${refType}`);
@@ -447,69 +467,11 @@ var WebGMELeanFix = (() => {
       }
       if (!progressed) {
         for (const concept of waiting.values()) {
-          emitStructure(concept);
+          emitConcept(concept);
         }
         break;
       }
     }
-    for (const concept of concepts) {
-      if (concept.containments.length === 0) {
-        continue;
-      }
-      const owner = leanIdent(concept.name);
-      for (const child of concept.containments) {
-        const childName = leanIdent(child.childType);
-        const ctor = ctorIdent(child.childType);
-        lines.push(`instance : ${techType("Contained")} ${owner} ${childName} where`);
-        lines.push("  children parent := parent._containment.filterMap fun");
-        lines.push(`    | .${ctor} node => some node`);
-        lines.push("    | _ => none");
-        lines.push("");
-      }
-    }
-    const mainName = leanIdent(dsl.mainType || namespace);
-    const mainConcept = [fco, ...concepts].find((concept) => leanIdent(concept.name) === mainName);
-    const directChildren = new Set(
-      (mainConcept ? mainConcept.containments : []).map((child) => leanIdent(child.childType))
-    );
-    const structural = [];
-    const emitDef = (name, body) => {
-      structural.push(`def ${name} (m : ${mainName}) : Bool :=`);
-      for (const line of body) {
-        structural.push(`  ${line}`);
-      }
-      structural.push("");
-    };
-    for (const concept of [fco, ...concepts]) {
-      const owner = leanIdent(concept.name);
-      if (owner !== mainName && !directChildren.has(owner)) {
-        continue;
-      }
-      const defOwner = owner === mainName ? mainName : `${mainName}_${owner}`;
-      for (const child of concept.containments) {
-        const childName = leanIdent(child.childType);
-        const lengthOf = owner === mainName ? `(_Contained.children (child := ${childName}) m).length` : `(_Contained.children (child := ${childName}) node).length`;
-        const body = (check) => owner === mainName ? [check] : [`(_Contained.children (child := ${owner}) m).all fun node =>`, `  ${check}`];
-        if (child.min > 0) {
-          emitDef(`${defOwner}_atLeast_${child.min}_${childName}`, body(`${lengthOf} \u2265 ${child.min}`));
-        }
-        if (child.max !== null) {
-          emitDef(`${defOwner}_atMost_${child.max}_${childName}`, body(`${lengthOf} \u2264 ${child.max}`));
-        }
-      }
-      for (const set of concept.sets) {
-        const lengthOf = owner === mainName ? `(m.${set.name}).length` : `(node.${set.name}).length`;
-        const setOwner = owner === mainName ? `${mainName}_${set.name}` : `${mainName}_${owner}_${set.name}`;
-        const body = (check) => owner === mainName ? [check] : [`(_Contained.children (child := ${owner}) m).all fun node =>`, `  ${check}`];
-        if ((set.min ?? 0) > 0) {
-          emitDef(`${setOwner}_atLeast_${set.min}`, body(`${lengthOf} \u2265 ${set.min}`));
-        }
-        if (set.max != null) {
-          emitDef(`${setOwner}_atMost_${set.max}`, body(`${lengthOf} \u2264 ${set.max}`));
-        }
-      }
-    }
-    lines.push(...structural);
     return lines.join("\n");
   }
   return __toCommonJS(leanFix_exports);

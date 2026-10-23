@@ -15,7 +15,11 @@
       }
     },
     "routers": {},
-    "seeds": {}
+    "seeds": {
+      "StateChart": {
+        "src": "src/seeds/StateChart"
+      }
+    }
   },
   "dependencies": {
     "visualizers": {},

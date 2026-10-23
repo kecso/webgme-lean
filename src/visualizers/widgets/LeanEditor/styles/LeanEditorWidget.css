@@ -23,6 +23,30 @@
 }
 
 .lean-editor {
+    position: relative;
     overflow: hidden;
     background: #1e1e1e;
+}
+
+.lean-editor .monaco-editor .view-overlays .lean-editable-line {
+    background: rgba(79, 195, 247, 0.16);
+}
+
+.lean-editor .monaco-editor .margin-view-overlays .lean-editable-margin {
+    background: rgba(79, 195, 247, 0.28);
+    box-shadow: inset 3px 0 0 #4fc3f7;
+}
+
+.lean-edit-hint {
+    position: absolute;
+    z-index: 20;
+    max-width: 340px;
+    padding: 8px 10px;
+    border-radius: 4px;
+    background: #264f78;
+    color: #ffffff;
+    font-size: 12px;
+    line-height: 1.4;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }

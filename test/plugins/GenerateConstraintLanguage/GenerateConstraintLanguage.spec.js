@@ -21,13 +21,13 @@ describe('GenerateConstraintLanguage', function () {
                 return fetch(serverUrl + '/api/projects/' + gmeConfig.authentication.guestAccount + '/Statechart', {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({type: 'file', seedName: 'statechart'})
+                    body: JSON.stringify({type: 'file', seedName: 'StateChart'})
                 });
             })
             .then(function (response) {
                 if (response.status !== 204) {
                     return response.text().then(function (body) {
-                        throw new Error('Importing examples/statechart/statechart.webgmex failed: ' +
+                        throw new Error('Importing src/seeds/StateChart/StateChart.webgmex failed: ' +
                             response.status + ' ' + body);
                     });
                 }

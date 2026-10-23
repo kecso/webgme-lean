@@ -205,26 +205,6 @@ function techType(name: string): string {
   return `_${name}`;
 }
 
-function joinAnd(items: string[]): string {
-  if (items.length <= 1) {
-    return items.join('');
-  }
-  if (items.length === 2) {
-    return `${items[0]} and ${items[1]}`;
-  }
-  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
-}
-
-function joinOr(items: string[]): string {
-  if (items.length <= 1) {
-    return items.join('');
-  }
-  if (items.length === 2) {
-    return `${items[0]} or ${items[1]}`;
-  }
-  return `${items.slice(0, -1).join(', ')}, or ${items[items.length - 1]}`;
-}
-
 function reaches(start: string, goal: string, adjacent: Map<string, string[]>): boolean {
   if (start === goal) {
     return true;
@@ -266,16 +246,12 @@ interface LeanConcept {
 /**
  * Generate Lean structures for the domain.
  *
- * `extends` follows each concept's base, and that chain starts at FCO.
- * FCO declares `name`. A concept's own attributes are its own fields.
- * A name that starts with `_` is technical, not a meta concept or meta attribute.
- * `_id` is identity. `_type` is the concept the node was created as.
- * Attributes, pointers, and sets are fields of the concept.
- * A pointer's type is its meta target. `Coe` stores a descendant there and
- * keeps the target's fields, including `_type`.
- * A pointer that would make a structure contain itself is an `_NodeId`.
- * Containment and set bounds that a `List` does not enforce are defs of the main type.
- * The result is that generated text only. The editor places user constraints after it.
+ * The text is the program only. Each concept is a section opened by `-- Name definitions`.
+ * The encoding rules live in docs/lean-encoding.md.
+ * Containment is a meta rule: each concept declares the children it may hold.
+ * That rule is `_OwnerChild` plus a `_Contained` instance per child type.
+ * Bounds a `List` does not enforce are defs of the main type.
+ * The editor places user constraints after this text.
  */
 export function generateLeanTypes(dsl: DomainDSL): string {
   const types = dsl.typeDefinitions;
@@ -340,26 +316,12 @@ export function generateLeanTypes(dsl: DomainDSL): string {
 
   const lines: string[] = [];
   const namespace = leanIdent(dsl.name || 'Domain');
-  lines.push('/-!');
-  lines.push(`# ${namespace}`);
-  lines.push('');
-  lines.push('Meta concepts are structures, and `extends` follows the base chain from FCO.');
-  lines.push('A name that starts with `_` is technical. It is not a meta concept or a meta attribute.');
-  lines.push('`_id` is identity. `_type` is the concept the node was created as.');
-  lines.push('Attributes, pointers, and sets are fields of the concept.');
-  lines.push('`_XChild` and `_Contained` are containment.');
-  lines.push('A pointer\'s type is its meta target. `Coe` stores a descendant there and keeps the');
-  lines.push('target\'s fields, including `_type`.');
-  lines.push('-/');
-  lines.push('');
   lines.push(`namespace ${namespace}`);
   lines.push('');
-  lines.push('-- technical: identity of a node. Not a meta attribute.');
   lines.push(`structure ${techType('NodeId')} where`);
   lines.push('  path : String');
   lines.push('  deriving DecidableEq, Repr');
   lines.push('');
-  lines.push('-- technical: the containment lookup. Not a meta concept.');
   lines.push(`class ${techType('Contained')} (parent child : Type) where`);
   lines.push('  children : parent → List child');
   lines.push('');
@@ -397,10 +359,6 @@ export function generateLeanTypes(dsl: DomainDSL): string {
     const owner = leanIdent(concept.name);
     const parent = concept.base ? leanIdent(concept.base) : null;
     const fields: string[] = [];
-    const technicalFields = [
-      ...(parent ? [] : ['_id', '_type']),
-      ...(concept.containments.length > 0 ? ['_containment'] : [])
-    ];
     if (!parent) {
       fields.push(`  _id : ${techType('NodeId')}`);
       fields.push(`  _type : ${techType('Type')}`);
@@ -417,10 +375,6 @@ export function generateLeanTypes(dsl: DomainDSL): string {
     }
     if (concept.containments.length > 0) {
       fields.push(`  _containment : List ${techType(`${owner}Child`)}`);
-    }
-    if (technicalFields.length > 0) {
-      const verb = technicalFields.length > 1 ? 'are' : 'is';
-      lines.push(`-- ${joinAnd(technicalFields)} ${verb} technical.`);
     }
     if (parent && fields.length === 0) {
       lines.push(`structure ${owner} extends ${parent} deriving Repr`);
@@ -444,97 +398,9 @@ export function generateLeanTypes(dsl: DomainDSL): string {
     }
   };
 
-  lines.push('-- technical: the concept a node was created as. Coercion keeps this field.');
-  lines.push(`inductive ${techType('Type')} where`);
-  for (const conceptName of ['FCO', ...ordered.map(concept => concept.name)]) {
-    lines.push(`  | ${ctorIdent(conceptName)}`);
-  }
-  lines.push('  deriving DecidableEq, Repr');
-  lines.push('');
-
-  emitted.clear();
-  emitStructure(fco);
-  emitted.add('FCO');
-  const waiting = new Map(ordered.map(concept => [leanIdent(concept.name), concept]));
-  const structReady = (typeName: string) => !waiting.has(typeName);
-  while (waiting.size > 0) {
-    let progressed = false;
-    for (const [typeName, concept] of waiting) {
-      if (concept.base && !structReady(leanIdent(concept.base))) {
-        continue;
-      }
-      const fieldTypes = [...concept.pointers, ...concept.sets]
-        .map(field => field.type.replace(/^(?:Option |List )/, ''))
-        .filter(name => waiting.has(name) || refSums.has(name));
-      const blocked = fieldTypes.some(name => {
-        if (refSums.has(name)) {
-          return !emitted.has(name);
-        }
-        return !structReady(name) && waiting.has(name);
-      });
-      const needsRef = fieldTypes.some(name => refSums.has(name) && !emitted.has(name));
-      if (blocked || needsRef) {
-        continue;
-      }
-      if (concept.containments.length > 0 && !emitted.has(techType(`${typeName}Child`))) {
-        const childrenReady = concept.containments.every(child => structReady(leanIdent(child.childType)) || leanIdent(child.childType) === typeName);
-        if (!childrenReady) {
-          continue;
-        }
-        const childType = techType(`${typeName}Child`);
-        lines.push(`-- technical: the children of ${typeName}. Not a meta concept.`);
-        lines.push(`inductive ${childType} where`);
-        for (const child of concept.containments) {
-          lines.push(`  | ${ctorIdent(child.childType)} : ${leanIdent(child.childType)} → ${childType}`);
-        }
-        lines.push('  deriving Repr');
-        lines.push('');
-        emitted.add(childType);
-      }
-      emitStructure(concept);
-      emitted.add(typeName);
-      waiting.delete(typeName);
-      progressed = true;
-    }
-    if (!progressed) {
-      for (const [refType, members] of refSums) {
-        if (emitted.has(refType)) {
-          continue;
-        }
-        if (members.some(member => waiting.has(leanIdent(member)))) {
-          continue;
-        }
-        const memberNames = members.map(member => leanIdent(member));
-        lines.push(`-- technical: a pointer with more than one target type: ${joinOr(memberNames)}.`);
-        lines.push(`inductive ${refType} where`);
-        for (const member of members) {
-          lines.push(`  | ${ctorIdent(member)} : ${leanIdent(member)} → ${refType}`);
-        }
-        lines.push('  deriving Repr');
-        lines.push('');
-        lines.push(`def ${refType}._id : ${refType} → ${techType('NodeId')}`);
-        for (const member of members) {
-          lines.push(`  | .${ctorIdent(member)} node => node._id`);
-        }
-        lines.push('');
-        lines.push(`instance : BEq ${refType} where`);
-        lines.push('  beq a b := a._id == b._id');
-        lines.push('');
-        emitted.add(refType);
-        progressed = true;
-      }
-    }
-    if (!progressed) {
-      for (const concept of waiting.values()) {
-        emitStructure(concept);
-      }
-      break;
-    }
-  }
-
-  for (const concept of concepts) {
+  const emitContained = (concept: LeanConcept) => {
     if (concept.containments.length === 0) {
-      continue;
+      return;
     }
     const owner = leanIdent(concept.name);
     for (const child of concept.containments) {
@@ -546,27 +412,26 @@ export function generateLeanTypes(dsl: DomainDSL): string {
       lines.push('    | _ => none');
       lines.push('');
     }
-  }
+  };
 
   const mainName = leanIdent(dsl.mainType || namespace);
   const mainConcept = [fco, ...concepts].find(concept => leanIdent(concept.name) === mainName);
   const directChildren = new Set(
     (mainConcept ? mainConcept.containments : []).map(child => leanIdent(child.childType))
   );
-  const structural: string[] = [];
-  const emitDef = (name: string, body: string[]) => {
-    structural.push(`def ${name} (m : ${mainName}) : Bool :=`);
-    for (const line of body) {
-      structural.push(`  ${line}`);
-    }
-    structural.push('');
-  };
-  for (const concept of [fco, ...concepts]) {
+  const emitBounds = (concept: LeanConcept) => {
     const owner = leanIdent(concept.name);
     if (owner !== mainName && !directChildren.has(owner)) {
-      continue;
+      return;
     }
     const defOwner = owner === mainName ? mainName : `${mainName}_${owner}`;
+    const emitDef = (name: string, body: string[]) => {
+      lines.push(`def ${name} (m : ${mainName}) : Bool :=`);
+      for (const line of body) {
+        lines.push(`  ${line}`);
+      }
+      lines.push('');
+    };
     for (const child of concept.containments) {
       const childName = leanIdent(child.childType);
       const lengthOf = owner === mainName
@@ -597,8 +462,101 @@ export function generateLeanTypes(dsl: DomainDSL): string {
         emitDef(`${setOwner}_atMost_${set.max}`, body(`${lengthOf} ≤ ${set.max}`));
       }
     }
+  };
+
+  const emitConcept = (concept: LeanConcept) => {
+    const typeName = leanIdent(concept.name);
+    lines.push(`-- ${typeName} definitions`);
+    if (concept.containments.length > 0 && !emitted.has(techType(`${typeName}Child`))) {
+      const childType = techType(`${typeName}Child`);
+      lines.push(`inductive ${childType} where`);
+      for (const child of concept.containments) {
+        lines.push(`  | ${ctorIdent(child.childType)} : ${leanIdent(child.childType)} → ${childType}`);
+      }
+      lines.push('  deriving Repr');
+      lines.push('');
+      emitted.add(childType);
+    }
+    emitStructure(concept);
+    emitContained(concept);
+    emitBounds(concept);
+    emitted.add(typeName);
+  };
+
+  lines.push(`inductive ${techType('Type')} where`);
+  for (const conceptName of ['FCO', ...ordered.map(concept => concept.name)]) {
+    lines.push(`  | ${ctorIdent(conceptName)}`);
   }
-  lines.push(...structural);
+  lines.push('  deriving DecidableEq, Repr');
+  lines.push('');
+
+  emitted.clear();
+  emitConcept(fco);
+  const waiting = new Map(ordered.map(concept => [leanIdent(concept.name), concept]));
+  const structReady = (typeName: string) => !waiting.has(typeName);
+  while (waiting.size > 0) {
+    let progressed = false;
+    for (const [typeName, concept] of waiting) {
+      if (concept.base && !structReady(leanIdent(concept.base))) {
+        continue;
+      }
+      const fieldTypes = [...concept.pointers, ...concept.sets]
+        .map(field => field.type.replace(/^(?:Option |List )/, ''))
+        .filter(name => waiting.has(name) || refSums.has(name));
+      const blocked = fieldTypes.some(name => {
+        if (refSums.has(name)) {
+          return !emitted.has(name);
+        }
+        return !structReady(name) && waiting.has(name);
+      });
+      const needsRef = fieldTypes.some(name => refSums.has(name) && !emitted.has(name));
+      if (blocked || needsRef) {
+        continue;
+      }
+      if (concept.containments.length > 0 && !emitted.has(techType(`${typeName}Child`))) {
+        const childrenReady = concept.containments.every(child => structReady(leanIdent(child.childType)) || leanIdent(child.childType) === typeName);
+        if (!childrenReady) {
+          continue;
+        }
+      }
+      emitConcept(concept);
+      waiting.delete(typeName);
+      progressed = true;
+    }
+    if (!progressed) {
+      for (const [refType, members] of refSums) {
+        if (emitted.has(refType)) {
+          continue;
+        }
+        if (members.some(member => waiting.has(leanIdent(member)))) {
+          continue;
+        }
+        lines.push(`inductive ${refType} where`);
+        for (const member of members) {
+          lines.push(`  | ${ctorIdent(member)} : ${leanIdent(member)} → ${refType}`);
+        }
+        lines.push('  deriving Repr');
+        lines.push('');
+        lines.push(`def ${refType}._id : ${refType} → ${techType('NodeId')}`);
+        for (const member of members) {
+          lines.push(`  | .${ctorIdent(member)} node => node._id`);
+        }
+        lines.push('');
+        lines.push(`instance : BEq ${refType} where`);
+        lines.push('  beq a b := a._id == b._id');
+        lines.push('');
+        emitted.add(refType);
+        progressed = true;
+      }
+    }
+    if (!progressed) {
+      for (const concept of waiting.values()) {
+        emitConcept(concept);
+      }
+      break;
+    }
+  }
+
   return lines.join('\n');
 }
 
