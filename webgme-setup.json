@@ -1,6 +1,10 @@
 {
   "components": {
-    "visualizers": {},
+    "visualizers": {
+      "LeanEditor": {
+        "src": "src/visualizers"
+      }
+    },
     "addons": {},
     "decorators": {},
     "layouts": {},

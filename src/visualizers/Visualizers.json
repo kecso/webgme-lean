@@ -1,0 +1,8 @@
+[
+  {
+    "id": "LeanEditor",
+    "title": "Lean Editor",
+    "panel": "panels/LeanEditor/LeanEditorPanel",
+    "DEBUG_ONLY": false
+  }
+]
