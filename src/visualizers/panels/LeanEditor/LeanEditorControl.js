@@ -10,11 +10,15 @@
 define([
     'js/Constants',
     'js/Utils/GMEConcepts',
-    'js/NodePropertyNames'
+    'js/NodePropertyNames',
+    'webgme-lean/leanDocument',
+    'webgme-lean/metaLean'
 ], function (
     CONSTANTS,
     GMEConcepts,
-    nodePropertyNames
+    nodePropertyNames,
+    leanDocument,
+    metaLean
 ) {
     'use strict';
 
@@ -38,23 +42,18 @@ define([
 
         this._logger.debug('selectedObjectChanged:', nodeId);
 
-        if (this._territoryId) {
-            this._client.removeUI(this._territoryId);
+        if (typeof nodeId !== 'string') {
+            return;
         }
 
         this._currentNodeId = nodeId;
 
-        if (!nodeId) {
+        if (this._territoryId) {
             return;
         }
 
-        this._rootNodeId = this._findRootNode(nodeId);
-
-        if (!this._rootNodeId) {
-            this._logger.warn('Could not find root node');
-            return;
-        }
-
+        // The project root id is the empty string. This visualizer only reads that node.
+        this._rootNodeId = '';
         this._territoryId = this._client.addUI(this, function (events) {
             self._eventCallback(events);
         }, 'LeanEditor_' + Date.now());
@@ -63,24 +62,6 @@ define([
         this._patterns[this._rootNodeId] = { children: 0 };
 
         this._client.updateTerritory(this._territoryId, this._patterns);
-    };
-
-    LeanEditorControl.prototype._findRootNode = function (nodeId) {
-        var node = this._client.getNode(nodeId);
-        if (!node) {
-            return null;
-        }
-
-        var current = node;
-        while (current.getParentId()) {
-            var parent = this._client.getNode(current.getParentId());
-            if (!parent) {
-                break;
-            }
-            current = parent;
-        }
-
-        return current.getId();
     };
 
     LeanEditorControl.prototype._eventCallback = function (events) {
@@ -104,18 +85,30 @@ define([
             return;
         }
 
-        var leanContent = rootNode.getRegistry(REGISTRY_KEY);
+        var doc = leanDocument.parse(rootNode.getRegistry(REGISTRY_KEY));
 
-        this._widget.setContent(leanContent || '');
-        this._widget.setTitle('Lean Editor - ' + (rootNode.getAttribute('name') || 'Root'));
+        if (!doc.fix) {
+            try {
+                doc.fix = metaLean.generateFix(this._client) || '';
+            } catch (err) {
+                this._logger.error('Could not prefill the generated Lean text', err);
+            }
+        }
 
-        this._logger.debug('Loaded lean content, length:', (leanContent || '').length);
+        if (this._widget.setParts) {
+            this._widget.setParts(doc.fix, doc.user);
+        } else {
+            this._widget.setContent(leanDocument.compose(doc.fix, doc.user));
+        }
+
+        this._logger.debug('Loaded lean content, fix length:', (doc.fix || '').length);
     };
 
-    LeanEditorControl.prototype.saveContent = function (content) {
+    LeanEditorControl.prototype.saveContent = function (doc) {
         var self = this;
+        var stored = leanDocument.serialize(doc || {fix: '', user: ''});
 
-        if (!this._rootNodeId) {
+        if (typeof this._rootNodeId !== 'string') {
             this._logger.error('No root node to save to');
             return Promise.reject(new Error('No root node'));
         }
@@ -123,9 +116,9 @@ define([
         return new Promise(function (resolve, reject) {
             try {
                 self._client.startTransaction('Update lean registry');
-                self._client.setRegistry(self._rootNodeId, REGISTRY_KEY, content);
+                self._client.setRegistry(self._rootNodeId, REGISTRY_KEY, stored);
                 self._client.completeTransaction('Updated lean registry');
-                self._logger.debug('Saved lean content, length:', content.length);
+                self._logger.debug('Saved lean content');
                 resolve();
             } catch (err) {
                 self._logger.error('Failed to save:', err);
@@ -135,16 +128,18 @@ define([
     };
 
     LeanEditorControl.prototype.getContent = function () {
-        if (!this._rootNodeId) {
+        if (typeof this._rootNodeId !== 'string') {
             return '';
         }
 
         var rootNode = this._client.getNode(this._rootNodeId);
+        var doc;
         if (!rootNode) {
             return '';
         }
 
-        return rootNode.getRegistry(REGISTRY_KEY) || '';
+        doc = leanDocument.parse(rootNode.getRegistry(REGISTRY_KEY));
+        return leanDocument.compose(doc.fix, doc.user);
     };
 
     LeanEditorControl.prototype._stateActiveObjectChanged = function (model, activeObjectId) {
@@ -214,13 +209,26 @@ define([
         this._toolbarItems.push(toolBar.addSeparator());
 
         this.$btnSave = toolBar.addButton({
-            title: 'Save Lean content',
+            title: 'Save the Lean text on the project root',
             icon: 'glyphicon glyphicon-floppy-disk',
             clickFn: function () {
                 self._widget.saveContent();
             }
         });
         this._toolbarItems.push(this.$btnSave);
+
+        this.$btnTheme = toolBar.addButton({
+            title: 'Switch the editor to light mode',
+            icon: 'glyphicon glyphicon-adjust',
+            clickFn: function () {
+                var theme = self._widget.toggleTheme();
+                var next = theme === 'lean-dark'
+                    ? 'Switch the editor to light mode'
+                    : 'Switch the editor to dark mode';
+                self.$btnTheme.el.find('a').attr('title', next);
+            }
+        });
+        this._toolbarItems.push(this.$btnTheme);
 
         this._toolbarInitialized = true;
     };

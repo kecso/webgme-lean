@@ -1,187 +1,28 @@
-/**
- * LeanEditor Widget Styles
- *
- * Styles for the Monaco-based Lean editor widget.
- */
+.panel-base-wh.constraint-manager-panel {
+    padding: 0;
+    margin: 0;
+    border: 0;
+    overflow: hidden;
+    background: #1e1e1e;
+}
+
+.panel-base-wh.constraint-manager-panel .panel-body {
+    padding: 0;
+    margin: 0;
+    border: 0;
+    overflow: hidden;
+    background: #1e1e1e;
+}
+
+.lean-editor,
+.lean-editor-monaco,
+.lean-editor .monaco-editor,
+.lean-editor .monaco-editor .overflow-guard {
+    width: 100%;
+    height: 100%;
+}
 
 .lean-editor {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    background-color: #1e1e1e;
     overflow: hidden;
-}
-
-.lean-editor-container {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-/* Toolbar */
-.lean-editor-toolbar {
-    display: flex;
-    align-items: center;
-    padding: 8px 12px;
-    background: #252526;
-    border-bottom: 1px solid #3c3c3c;
-    gap: 8px;
-    flex-shrink: 0;
-}
-
-.lean-editor-title {
-    color: #cccccc;
-    font-weight: 500;
-    font-size: 13px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.lean-editor-toolbar-spacer {
-    flex: 1;
-}
-
-/* Buttons */
-.lean-editor-btn {
-    padding: 4px 12px;
-    border: none;
-    border-radius: 2px;
-    cursor: pointer;
-    font-size: 12px;
-    transition: background-color 0.2s;
-}
-
-.lean-editor-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.lean-editor-btn-save {
-    background: #0e639c;
-    color: white;
-}
-
-.lean-editor-btn-save:hover:not(:disabled) {
-    background: #1177bb;
-}
-
-/* Status indicator */
-.lean-editor-status-indicator {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    margin-left: 8px;
-}
-
-.lean-editor-status-indicator.lean-editor-dirty {
-    background: #f9a825;
-}
-
-.lean-editor-status-indicator.lean-editor-saved {
-    background: #4caf50;
-}
-
-/* Monaco editor container */
-.lean-editor-monaco {
-    flex: 1;
-    overflow: hidden;
-    min-height: 100px;
-}
-
-/* Status bar */
-.lean-editor-status {
-    display: flex;
-    align-items: center;
-    padding: 4px 12px;
-    font-size: 12px;
-    flex-shrink: 0;
-}
-
-.lean-editor-status-normal {
-    background: #007acc;
-    color: white;
-}
-
-.lean-editor-status-error {
-    background: #c42b1c;
-    color: white;
-}
-
-.lean-editor-status-warning {
-    background: #f9a825;
-    color: #333333;
-}
-
-/* Ensure proper sizing when embedded in WebGME panels */
-.panel-base .lean-editor,
-.panel-base-wh .lean-editor {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-}
-
-/* Dark theme adjustments */
-.lean-editor .monaco-editor {
-    background-color: #1e1e1e;
-}
-
-.lean-editor .monaco-editor .margin {
-    background-color: #1e1e1e;
-}
-
-/* Light theme adjustments (when WebGME uses light theme) */
-.theme-light .lean-editor {
-    background-color: #ffffff;
-}
-
-.theme-light .lean-editor-toolbar {
-    background: #f3f3f3;
-    border-bottom-color: #e0e0e0;
-}
-
-.theme-light .lean-editor-title {
-    color: #333333;
-}
-
-.theme-light .lean-editor-status-normal {
-    background: #0066b8;
-}
-
-/* Scrollbar styling */
-.lean-editor .monaco-scrollable-element > .scrollbar > .slider {
-    background: rgba(121, 121, 121, 0.4);
-}
-
-.lean-editor .monaco-scrollable-element > .scrollbar > .slider:hover {
-    background: rgba(100, 100, 100, 0.7);
-}
-
-/* Minimap styling */
-.lean-editor .minimap {
-    background: #252526;
-}
-
-/* Selection colors */
-.lean-editor .monaco-editor .selected-text {
-    background-color: #264f78;
-}
-
-/* Cursor */
-.lean-editor .monaco-editor .cursor {
-    background-color: #aeafad;
-}
-
-/* Line numbers */
-.lean-editor .monaco-editor .line-numbers {
-    color: #858585;
-}
-
-.lean-editor .monaco-editor .current-line ~ .line-numbers {
-    color: #c6c6c6;
+    background: #1e1e1e;
 }

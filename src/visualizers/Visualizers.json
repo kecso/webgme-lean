@@ -1,7 +1,7 @@
 [
   {
     "id": "LeanEditor",
-    "title": "Lean Editor",
+    "title": "ConstraintManager (Lean)",
     "panel": "panels/LeanEditor/LeanEditorPanel",
     "DEBUG_ONLY": false
   }

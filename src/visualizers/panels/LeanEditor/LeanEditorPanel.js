@@ -22,7 +22,7 @@ define([
     function LeanEditorPanel(layoutManager, params) {
         var options = {};
         options[PanelBaseWithHeader.OPTIONS.LOGGER_INSTANCE_NAME] = 'LeanEditorPanel';
-        options[PanelBaseWithHeader.OPTIONS.FLOATING_TITLE] = true;
+        options[PanelBaseWithHeader.OPTIONS.NO_SCROLLING] = true;
 
         PanelBaseWithHeader.apply(this, [options, layoutManager]);
 
@@ -37,15 +37,9 @@ define([
     _.extend(LeanEditorPanel.prototype, IActivePanel.prototype);
 
     LeanEditorPanel.prototype._initialize = function () {
-        var self = this;
-
-        this.setTitle('Lean Editor');
+        this.$_el.addClass('constraint-manager-panel');
 
         this.widget = new LeanEditorWidget(this.logger, this.$el, this._client);
-
-        this.widget.setTitle = function (title) {
-            self.setTitle(title);
-        };
 
         this.control = new LeanEditorControl({
             logger: this.logger,
@@ -56,6 +50,10 @@ define([
         this.widget.setControl(this.control);
 
         this.onActivate();
+    };
+
+    LeanEditorPanel.prototype.selectedObjectChanged = function (nodeId) {
+        this.control.selectedObjectChanged(nodeId);
     };
 
     LeanEditorPanel.prototype.onReadOnlyChanged = function (isReadOnly) {

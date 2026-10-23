@@ -5,16 +5,13 @@
  * Monaco-based editor widget for viewing and editing Lean content stored
  * in the 'lean' registry of the WebGME project's Root node.
  *
- * Features:
- * - Monaco editor with Lean 4 syntax highlighting
- * - Save button to persist changes to the registry
- * - Auto-resize support
- * - Read-only mode support
+ * The editor fills the panel. Saving is the WebGME toolbar button.
  */
 
 define([
-    'css!./styles/LeanEditorWidget.css'
-], function () {
+    'css!./styles/LeanEditorWidget.css',
+    'webgme-lean/leanDocument'
+], function (_css, leanDocument) {
     'use strict';
 
     var WIDGET_CLASS = 'lean-editor';
@@ -29,8 +26,11 @@ define([
         this._monaco = null;
         this._editor = null;
         this._content = '';
+        this._fix = '';
+        this._user = '';
         this._isReadOnly = false;
-        this._isDirty = false;
+        this._theme = 'lean-dark';
+        this._guard = false;
 
         this._initialize();
 
@@ -38,56 +38,13 @@ define([
     }
 
     LeanEditorWidget.prototype._initialize = function () {
-        var self = this;
-
         this._el.addClass(WIDGET_CLASS);
-
-        this._containerEl = document.createElement('div');
-        this._containerEl.className = 'lean-editor-container';
-        this._el.append(this._containerEl);
-
-        this._toolbarEl = document.createElement('div');
-        this._toolbarEl.className = 'lean-editor-toolbar';
-        this._containerEl.appendChild(this._toolbarEl);
-
-        this._createToolbar();
 
         this._editorEl = document.createElement('div');
         this._editorEl.className = 'lean-editor-monaco';
-        this._containerEl.appendChild(this._editorEl);
-
-        this._statusEl = document.createElement('div');
-        this._statusEl.className = 'lean-editor-status';
-        this._statusEl.textContent = 'Loading editor...';
-        this._containerEl.appendChild(this._statusEl);
+        this._el.append(this._editorEl);
 
         this._loadMonaco();
-    };
-
-    LeanEditorWidget.prototype._createToolbar = function () {
-        var self = this;
-
-        var titleSpan = document.createElement('span');
-        titleSpan.className = 'lean-editor-title';
-        titleSpan.textContent = 'Lean Editor';
-        this._toolbarEl.appendChild(titleSpan);
-
-        var spacer = document.createElement('div');
-        spacer.className = 'lean-editor-toolbar-spacer';
-        this._toolbarEl.appendChild(spacer);
-
-        this._saveBtn = document.createElement('button');
-        this._saveBtn.className = 'lean-editor-btn lean-editor-btn-save';
-        this._saveBtn.textContent = 'Save';
-        this._saveBtn.title = 'Save changes (Ctrl+S)';
-        this._saveBtn.onclick = function () {
-            self.saveContent();
-        };
-        this._toolbarEl.appendChild(this._saveBtn);
-
-        this._statusIndicator = document.createElement('span');
-        this._statusIndicator.className = 'lean-editor-status-indicator';
-        this._toolbarEl.appendChild(this._statusIndicator);
     };
 
     LeanEditorWidget.prototype._loadMonaco = function () {
@@ -99,7 +56,6 @@ define([
             self._initializeEditor();
         }, function (err) {
             self._logger.error('Failed to load Monaco:', err);
-            self._setStatus('Failed to load editor', 'error');
         });
     };
 
@@ -125,18 +81,12 @@ define([
             readOnly: this._isReadOnly
         });
 
-        this._editor.onDidChangeModelContent(function () {
-            if (!self._isReadOnly) {
-                self._isDirty = true;
-                self._updateStatusIndicator();
-            }
-        });
-
         this._editor.addCommand(this._monaco.KeyMod.CtrlCmd | this._monaco.KeyCode.KeyS, function () {
             self.saveContent();
         });
 
-        this._setStatus('Ready');
+        this._guardGenerated();
+        this._applyTheme(this._theme);
         this._updateLayout();
 
         this._logger.debug('Monaco editor initialized');
@@ -350,20 +300,21 @@ define([
         this._logger.debug('Lean language registered');
     };
 
-    LeanEditorWidget.prototype._setStatus = function (message, type) {
-        type = type || 'normal';
-        this._statusEl.textContent = message;
-        this._statusEl.className = 'lean-editor-status lean-editor-status-' + type;
+    LeanEditorWidget.prototype.toggleTheme = function () {
+        return this._applyTheme(this._theme === 'lean-dark' ? 'lean-light' : 'lean-dark');
     };
 
-    LeanEditorWidget.prototype._updateStatusIndicator = function () {
-        if (this._isDirty) {
-            this._statusIndicator.className = 'lean-editor-status-indicator lean-editor-dirty';
-            this._statusIndicator.title = 'Unsaved changes';
-        } else {
-            this._statusIndicator.className = 'lean-editor-status-indicator lean-editor-saved';
-            this._statusIndicator.title = 'All changes saved';
+    LeanEditorWidget.prototype._applyTheme = function (theme) {
+        var dark = theme !== 'lean-light';
+        var background = dark ? '#1e1e1e' : '#ffffff';
+
+        this._theme = dark ? 'lean-dark' : 'lean-light';
+        if (this._monaco) {
+            this._monaco.editor.setTheme(this._theme);
         }
+        this._el.css('background-color', background);
+        this._el.closest('.constraint-manager-panel').css('background-color', background);
+        return this._theme;
     };
 
     LeanEditorWidget.prototype._updateLayout = function () {
@@ -376,18 +327,103 @@ define([
         this._control = control;
     };
 
+    LeanEditorWidget.prototype.setParts = function (fix, user) {
+        this._fix = fix || '';
+        this._user = user || '';
+        if (!this._fix) {
+            this.setContent(this._user || '');
+            return;
+        }
+        this.setContent(leanDocument.compose(this._fix, this._user));
+    };
+
     LeanEditorWidget.prototype.setContent = function (content) {
         this._content = content || '';
 
         if (this._editor) {
             var currentValue = this._editor.getValue();
             if (currentValue !== this._content) {
+                this._guard = true;
                 this._editor.setValue(this._content);
+                this._guard = false;
             }
         }
+    };
 
-        this._isDirty = false;
-        this._updateStatusIndicator();
+    LeanEditorWidget.prototype._guardGenerated = function () {
+        var self = this;
+        var monaco = this._monaco;
+        var KeyCode = monaco.KeyCode;
+        var navigation = {};
+        [
+            KeyCode.LeftArrow, KeyCode.RightArrow, KeyCode.UpArrow, KeyCode.DownArrow,
+            KeyCode.PageUp, KeyCode.PageDown, KeyCode.Home, KeyCode.End, KeyCode.Escape,
+            KeyCode.Tab
+        ].forEach(function (code) {
+            navigation[code] = true;
+        });
+
+        this._editor.onKeyDown(function (event) {
+            if (self._isReadOnly || !self._fix || self._inEditableSelection()) {
+                return;
+            }
+            if (navigation[event.keyCode] || event.ctrlKey || event.metaKey || event.altKey) {
+                return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+            self._placeInEditable();
+        });
+
+        this._editor.onDidChangeModelContent(function () {
+            var next;
+            var parts;
+            var restored;
+
+            if (self._guard || !self._fix) {
+                return;
+            }
+            next = self._editor.getValue();
+            parts = leanDocument.splitDocument(next, self._fix);
+            if (parts) {
+                self._user = parts.user;
+            }
+            restored = leanDocument.protect(self._fix, self._user, next);
+            if (restored === next) {
+                return;
+            }
+            self._guard = true;
+            self._editor.setValue(restored);
+            self._guard = false;
+            self._placeInEditable();
+        });
+    };
+
+    LeanEditorWidget.prototype._editableLines = function () {
+        return leanDocument.editableLines(this._fix, this._editor ? this._editor.getValue() : this._content);
+    };
+
+    LeanEditorWidget.prototype._inEditableSelection = function () {
+        var lines = this._editableLines();
+        var selection = this._editor && this._editor.getSelection();
+        if (!lines || !selection || lines.first > lines.last) {
+            return !this._fix;
+        }
+        return selection.startLineNumber >= lines.first &&
+            selection.endLineNumber <= lines.last;
+    };
+
+    LeanEditorWidget.prototype._placeInEditable = function () {
+        var lines = this._editableLines();
+        if (!lines || !this._editor) {
+            return;
+        }
+        var line = lines.first <= lines.last ? lines.first : lines.last;
+        if (line < 1) {
+            return;
+        }
+        this._editor.setPosition({ lineNumber: line, column: 1 });
+        this._editor.revealLine(line);
     };
 
     LeanEditorWidget.prototype.getContent = function () {
@@ -401,30 +437,25 @@ define([
         var self = this;
 
         if (!this._control) {
-            this._setStatus('No control connected', 'error');
+            this._logger.error('No control connected');
             return;
         }
 
         if (this._isReadOnly) {
-            this._setStatus('Read-only mode', 'warning');
+            this._logger.warn('Read-only mode');
             return;
         }
 
-        var content = this.getContent();
-
-        this._setStatus('Saving...');
-        this._saveBtn.disabled = true;
-
-        this._control.saveContent(content)
+        var parts = leanDocument.splitDocument(this.getContent(), this._fix);
+        if (!parts) {
+            parts = {fix: this._fix || '', user: this._user || ''};
+        }
+        this._control.saveContent(parts)
             .then(function () {
-                self._isDirty = false;
-                self._updateStatusIndicator();
-                self._setStatus('Saved');
-                self._saveBtn.disabled = false;
+                self._logger.debug('Saved');
             })
             .catch(function (err) {
-                self._setStatus('Save failed: ' + err.message, 'error');
-                self._saveBtn.disabled = false;
+                self._logger.error('Save failed:', err);
             });
     };
 
@@ -434,22 +465,15 @@ define([
         if (this._editor) {
             this._editor.updateOptions({ readOnly: isReadOnly });
         }
-
-        if (this._saveBtn) {
-            this._saveBtn.disabled = isReadOnly;
-        }
-    };
-
-    LeanEditorWidget.prototype.setTitle = function (title) {
-        var titleEl = this._toolbarEl.querySelector('.lean-editor-title');
-        if (titleEl) {
-            titleEl.textContent = title;
-        }
     };
 
     LeanEditorWidget.prototype.onWidgetContainerResize = function (width, height) {
         this._logger.debug('Widget resizing:', width, height);
-        this._updateLayout();
+        if (this._editor && width > 0 && height > 0) {
+            this._editorEl.style.width = width + 'px';
+            this._editorEl.style.height = height + 'px';
+            this._editor.layout({ width: width, height: height });
+        }
     };
 
     LeanEditorWidget.prototype.onActivate = function () {
