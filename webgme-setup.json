@@ -15,6 +15,9 @@
       },
       "ValidateConstraints": {
         "src": "src/plugins/ValidateConstraints"
+      },
+      "CheckWithLean": {
+        "src": "src/plugins/CheckWithLean"
       }
     },
     "routers": {

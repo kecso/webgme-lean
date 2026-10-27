@@ -409,7 +409,9 @@ export function generateLeanTypes(dsl: DomainDSL): string {
       lines.push(`instance : ${techType('Contained')} ${owner} ${childName} where`);
       lines.push('  children parent := parent._containment.filterMap fun');
       lines.push(`    | .${ctor} node => some node`);
-      lines.push('    | _ => none');
+      if (concept.containments.length > 1) {
+        lines.push('    | _ => none');
+      }
       lines.push('');
     }
   };

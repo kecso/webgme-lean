@@ -511,7 +511,7 @@ const webgmeConfig = router.webgmeRouterConfig();
 
 The Constraint Manager toolbar holds the scope, the editor actions, and validation.
 
-**Scope** lists ROOT and the concepts in the META. ROOT is the default and checks the whole project. Choosing one stores it in the constraints registry immediately and rewrites the first line, `constraintset … for …`. That line is always present and cannot be edited in the text.
+**Scope** lists ROOT and the concepts in the META. ROOT is the default and means the constraints apply across the whole project. Choosing one stores it in the constraints registry immediately and rewrites the first line, `constraintset … for …`. That line is always present and cannot be edited in the text.
 
 **Cheat sheet** opens a panel on the right side of the window. It stays open while you edit, and its examples use the concepts of the current project.
 
@@ -519,7 +519,9 @@ The Constraint Manager toolbar holds the scope, the editor actions, and validati
 
 **Describe** opens a dialog. The description is sent to `POST /leanllm/translate`, which calls an OpenAI-compatible chat endpoint and can insert the constraint it returns. The button stays disabled until `GET /leanllm/status` can reach the configured model.
 
-**Validate** checks the model with the `ValidateConstraints` plugin. For ROOT it checks the whole project. For any other scope it asks for a direct instance of that concept. The result is the failing constraints, or that the model is fine. The plugin is loaded when the WebGME server starts.
+**Validate** checks that the constraint text parses and that every concept, attribute, pointer, and set it names exists in the META.
+
+**Check with Lean** runs the `CheckWithLean` plugin. For ROOT it checks the project root. For any other scope it asks for a direct instance of that concept, shown as `name (/folder/instance)`. The plugin writes a Lean file for that instance and runs it with `lake env lean` from the `lean/` directory. Lean accepts the model when the file elaborates and each constraint theorem holds. Both plugins are loaded when the WebGME server starts.
 
 Point the endpoint at vLLM, llama.cpp, or Ollama in `config/config.default.js`:
 

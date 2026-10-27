@@ -2,7 +2,7 @@
   "id": "ValidateConstraints",
   "name": "ValidateConstraints",
   "version": "0.1.0",
-  "description": "Check the constraints of the whole project, or of one direct instance of the scope concept.",
+  "description": "Check that the constraint text parses and that the concepts, attributes, pointers, and sets it names are in the META.",
   "icon": {
     "class": "glyphicon glyphicon-ok",
     "src": ""
@@ -15,7 +15,7 @@
     {
       "name": "scope",
       "displayName": "Scope concept",
-      "description": "ROOT checks the whole project. Any other value is a meta concept, and the active node must be a direct instance of it. When empty, the scope stored with the constraints is used.",
+      "description": "The concept named on the constraint set. ROOT is the project-wide scope and is not looked up as a concept. When empty, the scope stored with the constraints is used.",
       "value": "",
       "valueType": "string",
       "readOnly": false

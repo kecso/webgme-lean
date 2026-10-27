@@ -275,13 +275,22 @@ define([
         this.$btnDescribe.enabled(false);
 
         this.$btnValidate = toolBar.addButton({
-            title: 'Validate the whole project',
+            title: 'Check that the constraints are well formed',
             icon: 'glyphicon glyphicon-ok',
             clickFn: function () {
                 self._openValidate();
             }
         });
         this._toolbarItems.push(this.$btnValidate);
+
+        this.$btnLean = toolBar.addButton({
+            title: 'Check a model with Lean',
+            icon: 'glyphicon glyphicon-play',
+            clickFn: function () {
+                self._openLean();
+            }
+        });
+        this._toolbarItems.push(this.$btnLean);
 
         this._widget.onConstraintCursor = function (active) {
             self._setExplainEnabled(active);
@@ -291,17 +300,6 @@ define([
         this._syncScopeControl();
 
         this._toolbarInitialized = true;
-    };
-
-    LeanEditorControl.prototype._conceptByName = function (name) {
-        var concepts = this._concepts();
-        var i;
-        for (i = 0; i < concepts.length; i += 1) {
-            if (concepts[i].name === name) {
-                return concepts[i];
-            }
-        }
-        return null;
     };
 
     LeanEditorControl.prototype._concepts = function () {
@@ -354,9 +352,13 @@ define([
         this.$btnScope.dropDownText(this._scope);
         if (this.$btnValidate) {
             this.$btnValidate.enabled(true);
-            this.$btnValidate.el.find('a').attr('title', this._scope === constraintCheck.DEFAULT_SCOPE
-                ? 'Validate the whole project'
-                : 'Validate a ' + this._scope);
+            this.$btnValidate.el.find('a').attr('title', 'Check that the constraints are well formed');
+        }
+        if (this.$btnLean) {
+            this.$btnLean.enabled(true);
+            this.$btnLean.el.find('a').attr('title', this._scope === constraintCheck.DEFAULT_SCOPE
+                ? 'Check the project root with Lean'
+                : 'Check a ' + this._scope + ' with Lean');
         }
     };
 
@@ -390,9 +392,44 @@ define([
             : 'Show the constraint cheat sheet');
     };
 
+    LeanEditorControl.prototype._conceptByName = function (name) {
+        var concepts = this._concepts();
+        var i;
+        for (i = 0; i < concepts.length; i += 1) {
+            if (concepts[i].name === name) {
+                return concepts[i];
+            }
+        }
+        return null;
+    };
+
     LeanEditorControl.prototype._instancesOf = function (conceptPath) {
         var found = [];
         var counts = {};
+        var selfClient = this._client;
+
+        function nodeName(node, id) {
+            return node.getAttribute('name') || (id === '' ? 'ROOT' : id);
+        }
+
+        function containmentPath(node) {
+            var names = [];
+            var current = node;
+            var guard = 0;
+            while (current && guard < 64) {
+                var id = current.getId();
+                if (id === '') {
+                    if (!names.length) {
+                        names.push(nodeName(current, id));
+                    }
+                    break;
+                }
+                names.unshift(nodeName(current, id));
+                current = selfClient.getNode(current.getParentId());
+                guard += 1;
+            }
+            return '/' + names.join('/');
+        }
 
         function walk(id) {
             var node = selfClient.getNode(id);
@@ -402,50 +439,55 @@ define([
             if (!node.isMetaNode() && node.getMetaTypeId() === conceptPath) {
                 found.push({
                     id: id,
-                    label: node.getAttribute('name') || (id === '' ? 'ROOT' : id)
+                    name: nodeName(node, id),
+                    path: containmentPath(node)
                 });
             }
             (node.getChildrenIds() || []).forEach(walk);
         }
 
-        var selfClient = this._client;
         walk('');
         found.forEach(function (item) {
-            counts[item.label] = (counts[item.label] || 0) + 1;
+            counts[item.path] = (counts[item.path] || 0) + 1;
         });
         found.forEach(function (item) {
-            if (counts[item.label] > 1) {
-                item.label = item.label + ' (' + (item.id || '/') + ')';
+            var path = item.path;
+            if (counts[item.path] > 1) {
+                path = path + ' [' + (item.id || '/') + ']';
             }
+            item.label = item.name + ' (' + path + ')';
+        });
+        found.sort(function (a, b) {
+            return a.label < b.label ? -1 : a.label > b.label ? 1 : 0;
         });
         return found;
     };
 
-    LeanEditorControl.prototype._openValidate = function () {
+    LeanEditorControl.prototype._openLean = function () {
         var self = this;
         var concept;
         var scope = this._scope || constraintCheck.DEFAULT_SCOPE;
         if (scope === constraintCheck.DEFAULT_SCOPE) {
-            this._widget.openValidateDialog({
+            this._widget.openLeanDialog({
                 scope: scope,
                 instances: [{id: '', label: 'ROOT'}],
                 run: function () {
-                    return self._runValidate('');
+                    return self._runLean('');
                 }
             });
             return;
         }
         concept = this._conceptByName(scope);
-        this._widget.openValidateDialog({
+        this._widget.openLeanDialog({
             scope: scope,
             instances: concept ? this._instancesOf(concept.path) : [],
             run: function (nodeId) {
-                return self._runValidate(nodeId);
+                return self._runLean(nodeId);
             }
         });
     };
 
-    LeanEditorControl.prototype._runValidate = function (nodeId) {
+    LeanEditorControl.prototype._runLean = function (nodeId) {
         var self = this;
         var scope = this._scope || constraintCheck.DEFAULT_SCOPE;
         var text = constraintCheck.ensureHeader(this._widget.getContent(), scope);
@@ -456,7 +498,54 @@ define([
             return self._whenSynced();
         }).then(function () {
             return new Promise(function (resolve) {
-                var context = self._client.getCurrentPluginContext('ValidateConstraints', nodeId, []);
+                var context = self._client.getCurrentPluginContext('CheckWithLean', nodeId, []);
+                context.pluginConfig = {text: text, scope: scope};
+                self._client.runServerPlugin('CheckWithLean', context, function (err, result) {
+                    var messages = result && result.messages || [];
+                    var infos = messages.filter(function (message) {
+                        return (message.severity || 'info') === 'info';
+                    });
+                    if (err) {
+                        resolve({
+                            error: err.message || String(err),
+                            messages: messages,
+                            successText: 'Lean accepted the model.'
+                        });
+                        return;
+                    }
+                    resolve({
+                        error: '',
+                        messages: messages,
+                        successText: infos.map(function (message) {
+                            return message.message;
+                        }).join('\n') || 'Lean accepted the model.'
+                    });
+                });
+            });
+        });
+    };
+
+    LeanEditorControl.prototype._openValidate = function () {
+        var self = this;
+        this._widget.openValidateDialog({
+            run: function () {
+                return self._runValidate();
+            }
+        });
+    };
+
+    LeanEditorControl.prototype._runValidate = function () {
+        var self = this;
+        var scope = this._scope || constraintCheck.DEFAULT_SCOPE;
+        var text = constraintCheck.ensureHeader(this._widget.getContent(), scope);
+
+        return this._persist(text, scope).catch(function () {
+            return null;
+        }).then(function () {
+            return self._whenSynced();
+        }).then(function () {
+            return new Promise(function (resolve) {
+                var context = self._client.getCurrentPluginContext('ValidateConstraints', '', []);
                 context.pluginConfig = {text: text, scope: scope};
                 self._client.runServerPlugin('ValidateConstraints', context, function (err, result) {
                     if (err) {

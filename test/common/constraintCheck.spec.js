@@ -3,30 +3,6 @@
 var assert = require('assert'),
     check = require('../../src/common/constraintCheck');
 
-function node(spec) {
-    return {
-        id: spec.id,
-        name: spec.name,
-        metaType: spec.types[0],
-        types: spec.types,
-        attributes: spec.attributes || {name: spec.name},
-        pointers: spec.pointers || {},
-        sets: spec.sets || {},
-        children: spec.children || [],
-        parent: spec.parent || null
-    };
-}
-
-function counter(extra) {
-    var nodes = [
-        node({id: '/c', name: 'counter', types: ['StateChart'], children: ['/i', '/e', '/s']}),
-        node({id: '/i', name: 'start', types: ['Init', 'State'], parent: '/c'}),
-        node({id: '/e', name: 'done', types: ['End', 'State'], parent: '/c'}),
-        node({id: '/s', name: 'middle', types: ['State'], parent: '/c'})
-    ];
-    return nodes.concat(extra || []);
-}
-
 var counterText = [
     'constraintset CounterConstraints for StateChart',
     'constraint ExactlyOneInit [error]',
@@ -77,83 +53,16 @@ describe('constraintCheck', function () {
         assert.strictEqual(check.ensureHeader(next, 'ROOT'), next);
     });
 
-    it('accepts one Init and one End', function () {
-        var report = check.checkModel({text: counterText, nodes: counter()});
+    it('parses a constraint set', function () {
+        var report = check.checkText(counterText);
         assert.strictEqual(report.ok, true);
         assert.deepStrictEqual(report.messages, []);
     });
 
-    it('reports a second Init', function () {
-        var nodes = counter([
-            node({id: '/i2', name: 'other', types: ['Init', 'State'], parent: '/c'})
-        ]);
-        var report = check.checkModel({text: counterText, nodes: nodes});
+    it('reports a constraint that does not parse', function () {
+        var report = check.checkText('constraint Broken [error]\nforall');
         assert.strictEqual(report.ok, false);
-        assert.ok(report.messages.some(function (message) {
-            return message.message.indexOf('ExactlyOneInit') === 0;
-        }));
-    });
-
-    it('reports two states with the same name', function () {
-        var nodes = counter();
-        nodes[2].name = 'start';
-        nodes[2].attributes = {name: 'start'};
-        var report = check.checkModel({
-            text: [
-                'constraintset StatechartConstraints for StateChart',
-                'constraint UniqueStateNames [error]',
-                'forall s1 in State:',
-                '  forall s2 in State where s1.name == s2.name:',
-                '    s1 == s2'
-            ].join('\n'),
-            nodes: nodes
-        });
-        assert.strictEqual(report.ok, false);
-        assert.ok(report.messages[0].message.indexOf('s1 = start') !== -1);
-        assert.ok(report.messages[0].message.indexOf('s2 = start') !== -1);
-    });
-
-    it('follows transitions when checking reachability', function () {
-        var nodes = counter([
-            node({
-                id: '/t',
-                name: 'go',
-                types: ['Transition'],
-                parent: '/c',
-                attributes: {name: 'go', event: 'tick'},
-                pointers: {src: '/i', dst: '/s'}
-            })
-        ]);
-        nodes[0].children = ['/i', '/e', '/s', '/t'];
-        var text = [
-            'constraintset StatechartConstraints for StateChart',
-            'define reachable(src, dst) = reachableVia(src, dst, Transition, "src", "dst")',
-            'constraint AllStatesReachable [error]',
-            'forall target in State:',
-            '  exists initial in Init:',
-            '    reachable(initial, target) or initial == target'
-        ].join('\n');
-        var open = check.checkModel({text: text, nodes: nodes});
-        assert.strictEqual(open.ok, false);
-
-        nodes.push(node({
-            id: '/t2',
-            name: 'finish',
-            types: ['Transition'],
-            parent: '/c',
-            pointers: {src: '/s', dst: '/e'}
-        }));
-        nodes[0].children.push('/t2');
-        var linked = check.checkModel({text: text, nodes: nodes});
-        assert.strictEqual(linked.ok, true, JSON.stringify(linked.messages));
-    });
-
-    it('keeps a warning from failing the check', function () {
-        var report = check.checkModel({
-            text: 'constraint Soft [warning]\ncount(Init) == 0',
-            nodes: counter()
-        });
-        assert.strictEqual(report.ok, true);
-        assert.strictEqual(report.messages[0].severity, 'warning');
+        assert.strictEqual(report.messages[0].severity, 'error');
+        assert.ok(report.messages[0].message);
     });
 });

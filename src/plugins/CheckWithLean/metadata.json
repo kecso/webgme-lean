@@ -1,0 +1,32 @@
+{
+  "id": "CheckWithLean",
+  "name": "CheckWithLean",
+  "version": "0.1.0",
+  "description": "Generate a Lean file for one model instance and check it with the Lean compiler.",
+  "icon": {
+    "class": "glyphicon glyphicon-play",
+    "src": ""
+  },
+  "disableServerSideExecution": false,
+  "disableBrowserSideExecution": true,
+  "dependencies": [],
+  "writeAccessRequired": false,
+  "configStructure": [
+    {
+      "name": "scope",
+      "displayName": "Scope concept",
+      "description": "ROOT checks the project root. Any other value is a meta concept, and the active node must be a direct instance of it.",
+      "value": "",
+      "valueType": "string",
+      "readOnly": false
+    },
+    {
+      "name": "text",
+      "displayName": "Constraints",
+      "description": "Constraint text to translate into the Lean file. When empty, the constraints registry on the project root is used.",
+      "value": "",
+      "valueType": "string",
+      "readOnly": false
+    }
+  ]
+}

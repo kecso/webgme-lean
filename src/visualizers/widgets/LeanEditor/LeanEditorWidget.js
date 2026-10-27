@@ -530,9 +530,9 @@ define([
         var conceptsTitle = cheatElement('h3', null, 'Concepts');
 
         intro.textContent = scope === 'ROOT'
-            ? 'Constraints in this set are checked across the whole project.'
+            ? 'Constraints in this set apply across the whole project.'
             : scope
-                ? 'Constraints in this set are checked inside one ' + scope + '.'
+                ? 'Constraints in this set apply inside one ' + scope + '.'
                 : 'Choose a scope concept to say which model these constraints describe.';
         body.appendChild(intro);
 
@@ -610,9 +610,9 @@ define([
             lines.push('count(Type) == 1');
         }
         if (scope === 'ROOT') {
-            lines.unshift('// checked across the whole project');
+            lines.unshift('// applies across the whole project');
         } else if (scope) {
-            lines.unshift('// checked for one ' + scope);
+            lines.unshift('// applies to one ' + scope);
         }
         return lines.join('\n');
     }
@@ -963,20 +963,62 @@ define([
 
     LeanEditorWidget.prototype.openValidateDialog = function (options) {
         var self = this;
-        var scope = options.scope || 'model';
 
         this._showDialog('Validate', function (body) {
+            var intro = document.createElement('p');
+            var actions;
+            var button;
+            var status;
+
+            intro.textContent = 'Check that these constraints parse and that their concepts, attributes, pointers, and sets are in the META.';
+            body.appendChild(intro);
+
+            actions = document.createElement('div');
+            actions.className = 'lean-nl-actions';
+            button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn btn-primary';
+            button.textContent = 'Validate';
+            status = document.createElement('div');
+            status.className = 'lean-nl-result';
+            actions.appendChild(button);
+            body.appendChild(actions);
+            body.appendChild(status);
+
+            button.addEventListener('click', function () {
+                status.textContent = 'Checking…';
+                button.disabled = true;
+                options.run().then(function (result) {
+                    button.disabled = false;
+                    self._renderValidation(status, result);
+                }).catch(function (err) {
+                    button.disabled = false;
+                    status.innerHTML = '';
+                    var error = document.createElement('p');
+                    error.className = 'lean-nl-error';
+                    error.textContent = err.message || String(err);
+                    status.appendChild(error);
+                });
+            });
+        });
+    };
+
+    LeanEditorWidget.prototype.openLeanDialog = function (options) {
+        var self = this;
+        var scope = options.scope || 'model';
+        var wholeProject = scope === 'ROOT';
+
+        this._showDialog('Check with Lean', function (body) {
             var intro = document.createElement('p');
             var select;
             var actions;
             var button;
             var status;
-            var wholeProject = scope === 'ROOT';
 
             intro.textContent = wholeProject
-                ? 'Check the whole project.'
+                ? 'Run Lean on the project root.'
                 : options.instances.length
-                    ? 'Choose a ' + scope + ' to check.'
+                    ? 'Choose a ' + scope + ' to check with Lean.'
                     : 'There is no ' + scope + ' in the project.';
             body.appendChild(intro);
             if (!wholeProject && !options.instances.length) {
@@ -988,7 +1030,7 @@ define([
             button = document.createElement('button');
             button.type = 'button';
             button.className = 'btn btn-primary';
-            button.textContent = 'Validate';
+            button.textContent = 'Run Lean';
             status = document.createElement('div');
             status.className = 'lean-nl-result';
             actions.appendChild(button);
@@ -1003,6 +1045,7 @@ define([
                     var option = document.createElement('option');
                     option.value = String(index);
                     option.textContent = item.label;
+                    option.title = item.path || item.label;
                     select.appendChild(option);
                 });
                 body.appendChild(select);
@@ -1019,7 +1062,7 @@ define([
                     }
                     nodeId = options.instances[Number(select.value)].id;
                 }
-                status.textContent = 'Checking…';
+                status.textContent = 'Running Lean…';
                 button.disabled = true;
                 options.run(nodeId).then(function (result) {
                     button.disabled = false;
@@ -1037,7 +1080,10 @@ define([
     };
 
     LeanEditorWidget.prototype._renderValidation = function (status, result) {
-        var messages = result && result.messages || [];
+        var messages = (result && result.messages || []).filter(function (message) {
+            var severity = message.severity || 'info';
+            return severity === 'error' || severity === 'warning';
+        });
         status.innerHTML = '';
         if (result && result.error && !messages.length) {
             var failure = document.createElement('p');
@@ -1049,23 +1095,31 @@ define([
         if (!messages.length) {
             var fine = document.createElement('p');
             fine.className = 'lean-nl-ok';
-            fine.textContent = 'The model is fine.';
+            fine.textContent = result && result.successText || 'The constraints are well formed.';
             status.appendChild(fine);
             return;
         }
-        messages.forEach(function (message) {
+        function addLine(message, className) {
             var line = document.createElement('p');
-            var severity = message.severity || 'info';
             var nodeName = message.activeNode && message.activeNode.name;
-            if (severity === 'error') {
-                line.className = 'lean-nl-error';
-            } else if (severity === 'warning') {
-                line.className = 'lean-nl-warning';
-            } else {
-                line.className = 'lean-nl-ok';
-            }
+            line.className = className;
             line.textContent = (nodeName ? nodeName + ': ' : '') + (message.message || '');
             status.appendChild(line);
+        }
+        messages.forEach(function (message) {
+            var severity = message.severity || 'info';
+            if (severity === 'error') {
+                addLine(message, 'lean-nl-error');
+            } else if (severity === 'warning') {
+                addLine(message, 'lean-nl-warning');
+            } else {
+                addLine(message, 'lean-nl-ok');
+            }
+        });
+        (result && result.messages || []).forEach(function (message) {
+            if ((message.severity || 'info') === 'info') {
+                addLine(message, 'lean-nl-ok');
+            }
         });
     };
 
