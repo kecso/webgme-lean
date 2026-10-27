@@ -147,6 +147,7 @@
         var args;
         var owner;
         var pointer;
+        var bound;
         if (!expr) {
             throw new Error('The constraint is missing an expression.');
         }
@@ -163,8 +164,9 @@
             return 'none';
         }
         if (expr.k === 'name') {
-            if (Object.prototype.hasOwnProperty.call(env.vars, expr.name)) {
-                return env.vars[expr.name].lean;
+            bound = boundVar(env, expr.name);
+            if (bound) {
+                return bound.lean;
             }
             if (types[expr.name]) {
                 return collection(types, scopeType, expr.name, env.model);
@@ -244,6 +246,17 @@
             receiverPointer(expr.right, env, types).optional;
     }
 
+    function boundVar(env, name) {
+        var scope = env && env.vars;
+        while (scope && scope !== Object.prototype) {
+            if (Object.prototype.hasOwnProperty.call(scope, name)) {
+                return scope[name];
+            }
+            scope = Object.getPrototypeOf(scope);
+        }
+        return null;
+    }
+
     function receiverPointer(expr, env, types) {
         var receiver;
         var bound;
@@ -251,10 +264,10 @@
             return {optional: false, found: false};
         }
         receiver = expr.expr;
-        if (!receiver || receiver.k !== 'name' || !env.vars[receiver.name]) {
+        bound = receiver && receiver.k === 'name' ? boundVar(env, receiver.name) : null;
+        if (!bound) {
             return {optional: false, found: false};
         }
-        bound = env.vars[receiver.name];
         var pointer = pointerOf(types, bound.typeName, expr.name);
         if (!pointer) {
             return {optional: false, found: false};

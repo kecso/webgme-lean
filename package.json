@@ -47,15 +47,8 @@
   },
   "dependencies": {
     "chevrotain": "^11.0.3",
+    "monaco-editor": "0.45.0",
     "webgme": "2.50.0"
-  },
-  "peerDependencies": {
-    "monaco-editor": "^0.45.0"
-  },
-  "peerDependenciesMeta": {
-    "monaco-editor": {
-      "optional": true
-    }
   },
   "engines": {
     "node": ">=20.19.0"

@@ -140,6 +140,38 @@ define([
         }).filter(Boolean);
     }
 
+    function leanLog(info) {
+        var lines = [
+            'exit: ' + (info.code === undefined || info.code === null ? 'not run' : info.code)
+        ];
+        if (info.command) {
+            lines.push('command: ' + info.command);
+        }
+        if (info.cwd) {
+            lines.push('cwd: ' + info.cwd);
+        }
+        if (info.note) {
+            lines.push(info.note);
+        }
+        lines.push('');
+        lines.push('--- stdout ---');
+        lines.push(info.stdout || '');
+        lines.push('--- stderr ---');
+        lines.push(info.stderr || '');
+        return lines.join('\n');
+    }
+
+    function saveRunRecord(plugin, files) {
+        var artifact = plugin.blobClient.createArtifact('lean-check');
+        return artifact.addFiles(files).then(function () {
+            return artifact.save();
+        }).then(function (hash) {
+            plugin.result.addArtifact(hash);
+            plugin.logger.info('Saved Lean run record ' + hash);
+            return hash;
+        });
+    }
+
     CheckWithLean.prototype.main = function (callback) {
         var self = this;
         var config = self.getCurrentConfig();
@@ -224,10 +256,41 @@ define([
                 callback(buildErr, self.result);
                 return;
             }
+            function runFiles() {
+                var files = {
+                    'constraints.txt': text,
+                    'model.json': JSON.stringify(described, null, 2)
+                };
+                if (program && program.source) {
+                    files['model.lean'] = program.source;
+                }
+                return files;
+            }
+
+            function publish(logText, report) {
+                var files = runFiles();
+                files['lean.log'] = logText;
+                saveRunRecord(self, files).then(function () {
+                    report();
+                    self.result.setSuccess(true);
+                    callback(null, self.result);
+                }).catch(function (saveErr) {
+                    self.logger.error('Could not save the Lean run record:', saveErr);
+                    self.createMessage(
+                        self.activeNode,
+                        'The run record could not be saved: ' + (saveErr.message || saveErr),
+                        'warning'
+                    );
+                    report();
+                    self.result.setSuccess(true);
+                    callback(null, self.result);
+                });
+            }
+
             if (!program.ok) {
-                self.createMessage(self.activeNode, program.error, 'error');
-                self.result.setSuccess(true);
-                callback(null, self.result);
+                publish(leanLog({note: program.error}), function () {
+                    self.createMessage(self.activeNode, program.error, 'error');
+                });
                 return;
             }
 
@@ -235,32 +298,40 @@ define([
             fs.writeFileSync(filePath, program.source);
             runLean(filePath, leanDir).then(function (lean) {
                 var output = leanLines((lean.stderr || '') + '\n' + (lean.stdout || ''));
-                if (lean.code === 0) {
-                    try {
-                        fs.unlinkSync(filePath);
-                    } catch (unlinkErr) {
-                        self.logger.warn(unlinkErr);
-                    }
-                    self.createMessage(
-                        self.activeNode,
-                        program.proved
-                            ? 'Lean accepted the model.'
-                            : 'Lean accepted the model. There were no constraints to prove.',
-                        'info'
-                    );
-                } else if (lean.code === 127) {
-                    self.createMessage(self.activeNode, output[0] || 'Lean is not available. Install elan, then run lake update in the lean directory.', 'error');
-                } else {
-                    if (!output.length) {
-                        output.push('Lean rejected the model. The generated file is ' + filePath + '.');
-                    }
-                    output.forEach(function (line) {
-                        self.createMessage(self.activeNode, line, 'error');
-                    });
-                    self.createMessage(self.activeNode, 'Generated file: ' + filePath, 'info');
+                var command = 'lake env lean ' + filePath;
+                try {
+                    fs.unlinkSync(filePath);
+                } catch (unlinkErr) {
+                    self.logger.warn(unlinkErr);
                 }
-                self.result.setSuccess(true);
-                callback(null, self.result);
+                publish(leanLog({
+                    code: lean.code,
+                    command: command,
+                    cwd: leanDir,
+                    note: 'The checked source is model.lean in this run record.',
+                    stdout: lean.stdout,
+                    stderr: lean.stderr
+                }), function () {
+                    if (lean.code === 0) {
+                        self.createMessage(
+                            self.activeNode,
+                            program.proved
+                                ? 'Lean accepted the model.'
+                                : 'Lean accepted the model. There were no constraints to prove.',
+                            'info'
+                        );
+                    } else if (lean.code === 127) {
+                        self.createMessage(self.activeNode, output[0] || 'Lean is not available. Install elan, then run lake update in the lean directory.', 'error');
+                    } else {
+                        if (!output.length) {
+                            output.push('Lean rejected the model.');
+                        }
+                        output.forEach(function (line) {
+                            self.createMessage(self.activeNode, line, 'error');
+                        });
+                    }
+                    self.logger.info('Lean exited ' + lean.code);
+                });
             }).catch(function (runErr) {
                 callback(runErr, self.result);
             });

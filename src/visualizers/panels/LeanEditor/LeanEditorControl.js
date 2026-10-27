@@ -509,6 +509,7 @@ define([
                         resolve({
                             error: err.message || String(err),
                             messages: messages,
+                            artifacts: result && result.artifacts || [],
                             successText: 'Lean accepted the model.'
                         });
                         return;
@@ -516,6 +517,7 @@ define([
                     resolve({
                         error: '',
                         messages: messages,
+                        artifacts: result && result.artifacts || [],
                         successText: infos.map(function (message) {
                             return message.message;
                         }).join('\n') || 'Lean accepted the model.'

@@ -8,9 +8,11 @@
 
 define([
     'css!./styles/LeanEditorWidget.css',
+    'blob/BlobClient',
     'webgme-lean/metaLean'
 ], function (
     _css,
+    BlobClient,
     metaLean
 ) {
     'use strict';
@@ -1090,6 +1092,7 @@ define([
             failure.className = 'lean-nl-error';
             failure.textContent = result.error;
             status.appendChild(failure);
+            this._renderRunRecord(status, result.artifacts);
             return;
         }
         if (!messages.length) {
@@ -1097,6 +1100,7 @@ define([
             fine.className = 'lean-nl-ok';
             fine.textContent = result && result.successText || 'The constraints are well formed.';
             status.appendChild(fine);
+            this._renderRunRecord(status, result && result.artifacts);
             return;
         }
         function addLine(message, className) {
@@ -1121,6 +1125,80 @@ define([
                 addLine(message, 'lean-nl-ok');
             }
         });
+        this._renderRunRecord(status, result && result.artifacts);
+    };
+
+    function recordText(content) {
+        if (typeof content === 'string') {
+            return content;
+        }
+        if (content && typeof content.byteLength === 'number') {
+            return new TextDecoder('utf-8').decode(content);
+        }
+        return JSON.stringify(content, null, 2);
+    }
+
+    LeanEditorWidget.prototype._renderRunRecord = function (status, artifacts) {
+        var hashes = artifacts || [];
+        var blobClient;
+        var section;
+        var heading;
+        if (!hashes.length) {
+            return;
+        }
+        blobClient = new BlobClient({logger: this._logger.fork('BlobClient')});
+        section = document.createElement('div');
+        section.className = 'lean-run-record';
+        heading = document.createElement('h4');
+        heading.textContent = 'Run record';
+        section.appendChild(heading);
+        hashes.forEach(function (hash) {
+            var download = document.createElement('a');
+            download.href = blobClient.getDownloadURL(hash);
+            download.target = '_blank';
+            download.rel = 'noopener';
+            download.textContent = 'Download the run record';
+            section.appendChild(download);
+            blobClient.getMetadata(hash).then(function (metadata) {
+                var names = Object.keys(metadata.content || {});
+                var order = { 'constraints.txt': 0, 'model.json': 1, 'model.lean': 2, 'lean.log': 3 };
+                names.sort(function (a, b) {
+                    var left = order[a] === undefined ? 10 : order[a];
+                    var right = order[b] === undefined ? 10 : order[b];
+                    return left - right || (a < b ? -1 : a > b ? 1 : 0);
+                });
+                if (metadata.name) {
+                    download.textContent = 'Download ' + metadata.name;
+                }
+                names.forEach(function (name) {
+                    var details = document.createElement('details');
+                    var summary = document.createElement('summary');
+                    var pre = document.createElement('pre');
+                    var fileLink = document.createElement('a');
+                    details.open = name === 'lean.log';
+                    summary.textContent = name;
+                    pre.className = 'lean-run-pre';
+                    pre.textContent = 'Loading…';
+                    fileLink.href = blobClient.getDownloadURL(hash, name);
+                    fileLink.target = '_blank';
+                    fileLink.rel = 'noopener';
+                    fileLink.textContent = 'Download ' + name;
+                    details.appendChild(summary);
+                    details.appendChild(fileLink);
+                    details.appendChild(pre);
+                    section.appendChild(details);
+                    blobClient.getObject(hash, function (err, content) {
+                        pre.textContent = err ? (err.message || String(err)) : recordText(content);
+                    }, name);
+                });
+            }).catch(function (err) {
+                var problem = document.createElement('p');
+                problem.className = 'lean-nl-error';
+                problem.textContent = err.message || String(err);
+                section.appendChild(problem);
+            });
+        });
+        status.appendChild(section);
     };
 
     LeanEditorWidget.prototype._insertText = function (text) {

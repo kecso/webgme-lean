@@ -149,6 +149,27 @@ describe('leanCheck', function () {
         assert.ok(program.source.trim().endsWith('end Demo'));
     });
 
+    it('keeps an outer quantifier variable visible inside a nested one', function () {
+        var program = leanCheck.buildProgram({
+            domainSource: domain,
+            scopeType: 'Box',
+            rootId: '/box',
+            nodes: box(2),
+            text: [
+                'constraintset DemoConstraints for Box',
+                'constraint AtLeastTwo [error]',
+                'exists e1 in Item:',
+                '  exists e2 in Item:',
+                '    e1 != e2'
+            ].join('\n'),
+            types: types
+        });
+        assert.strictEqual(program.ok, true, program.error);
+        assert.ok(program.source.indexOf('fun e1 =>') !== -1);
+        assert.ok(program.source.indexOf('fun e2 =>') !== -1);
+        assert.ok(program.source.indexOf('e1 != e2') !== -1);
+    });
+
     it('rejects a definition, which Lean does not encode yet', function () {
         var program = leanCheck.buildProgram({
             domainSource: domain,
@@ -164,6 +185,30 @@ describe('leanCheck', function () {
 
     it('accepts the file in Lean when the constraint holds', function () {
         var program = programFor(1);
+        if (!fs.existsSync(path.join(__dirname, '../../lean/lean-toolchain'))) {
+            this.skip();
+        }
+        return runLean(program.source).then(function (result) {
+            assert.strictEqual(result.code, 0, result.output);
+        });
+    });
+
+    it('accepts nested existential variables in Lean', function () {
+        var program = leanCheck.buildProgram({
+            domainSource: domain,
+            scopeType: 'Box',
+            rootId: '/box',
+            nodes: box(2),
+            text: [
+                'constraintset DemoConstraints for Box',
+                'constraint AtLeastTwo [error]',
+                'exists e1 in Item:',
+                '  exists e2 in Item:',
+                '    e1 != e2'
+            ].join('\n'),
+            types: types
+        });
+        assert.strictEqual(program.ok, true, program.error);
         if (!fs.existsSync(path.join(__dirname, '../../lean/lean-toolchain'))) {
             this.skip();
         }

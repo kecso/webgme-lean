@@ -97,6 +97,43 @@
     color: #3c763d;
 }
 
+.lean-run-record {
+    margin-top: 14px;
+}
+
+.lean-run-record h4 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.lean-run-record details {
+    margin: 8px 0;
+}
+
+.lean-run-record summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.lean-run-record a {
+    display: inline-block;
+    margin: 4px 0;
+}
+
+.lean-run-pre {
+    max-height: 240px;
+    overflow: auto;
+    margin: 6px 0 10px;
+    padding: 8px;
+    background: #ffffff;
+    border: 1px solid #dddddd;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+}
+
 .lean-cheat-sheet {
     position: fixed;
     top: 52px;
