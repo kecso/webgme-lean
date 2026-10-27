@@ -1,4 +1,4 @@
-/*globals define, require*/
+/*globals define, require, $*/
 /**
  * Constraint manager editor.
  *
@@ -67,7 +67,7 @@ define([
             language: LANGUAGE_ID,
             theme: 'lean-dark',
             automaticLayout: false,
-            minimap: { enabled: true },
+            minimap: { enabled: false },
             fontSize: 14,
             lineNumbers: 'on',
             renderWhitespace: 'selection',
@@ -82,6 +82,19 @@ define([
         this._editor.addCommand(this._monaco.KeyMod.CtrlCmd | this._monaco.KeyCode.KeyS, function () {
             self.saveContent();
         });
+
+        this._editor.onDidChangeCursorPosition(function () {
+            self._notifyConstraintCursor();
+        });
+        this._editor.onDidChangeModelContent(function (event) {
+            self._keepHeader(event);
+            self._notifyConstraintCursor();
+        });
+        this._editor.onKeyDown(function (event) {
+            self._blockHeaderEdit(event);
+        });
+        this._notifyConstraintCursor();
+        this._markHeader();
 
         this._applyTheme(this._theme);
         this._updateLayout();
@@ -229,15 +242,157 @@ define([
     };
 
     LeanEditorWidget.prototype.setContent = function (content) {
+        var position;
+        var model;
+        var line;
+        var column;
+
         this._content = content || '';
+        this._headerLine = this._headerFrom(this._content);
 
         if (this._editor) {
             if (this._editor.getValue() !== this._content) {
+                position = this._editor.getPosition();
                 this._guard = true;
                 this._editor.setValue(this._content);
                 this._guard = false;
+                if (position && position.lineNumber > 1) {
+                    model = this._editor.getModel();
+                    line = Math.min(position.lineNumber, model.getLineCount());
+                    column = Math.min(position.column, model.getLineMaxColumn(line));
+                    this._editor.setPosition({lineNumber: line, column: column});
+                }
             }
+            this._markHeader();
         }
+    };
+
+    LeanEditorWidget.prototype._headerFrom = function (text) {
+        var line = String(text || '').split(/\r?\n/, 1)[0];
+        return /^\s*constraintset\s+\S+\s+for\s+\S+/.test(line) ? line : '';
+    };
+
+    LeanEditorWidget.prototype._markHeader = function () {
+        var range;
+        var options;
+        if (!this._editor || !this._monaco || !this._headerLine) {
+            return;
+        }
+        range = new this._monaco.Range(1, 1, 1, 1);
+        options = {
+            description: 'constraintset-header',
+            isWholeLine: true,
+            className: 'lean-readonly-line',
+            marginClassName: 'lean-readonly-margin',
+            stickiness: this._monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+            hoverMessage: {value: 'This line follows the scope. Change it from the scope menu.'}
+        };
+        if (!this._headerDecorations) {
+            this._headerDecorations = this._editor.createDecorationsCollection([
+                {range: range, options: options}
+            ]);
+        } else {
+            this._headerDecorations.set([{range: range, options: options}]);
+        }
+    };
+
+    LeanEditorWidget.prototype._changeTouchesHeader = function (event) {
+        return (event.changes || []).some(function (change) {
+            return change.range.startLineNumber === 1;
+        });
+    };
+
+    LeanEditorWidget.prototype._keepHeader = function (event) {
+        if (this._guard || this._headerGuard || !this._headerLine || !event || event.isFlush) {
+            return;
+        }
+        if (!this._changeTouchesHeader(event)) {
+            return;
+        }
+        if (event.isUndoing || event.isRedoing) {
+            this._repairHeader();
+            return;
+        }
+        this._headerGuard = true;
+        this._editor.trigger('constraintset-header', 'undo', null);
+        this._headerGuard = false;
+        if (this._editor.getModel().getLineContent(1) !== this._headerLine) {
+            this._repairHeader();
+        } else {
+            this._markHeader();
+        }
+    };
+
+    LeanEditorWidget.prototype._repairHeader = function () {
+        var model = this._editor.getModel();
+        var header = this._headerLine;
+        var first = model.getLineContent(1);
+        var eol = model.getEOL();
+        var rest = '';
+        var range;
+        var text;
+
+        if (!header || first === header) {
+            this._markHeader();
+            return;
+        }
+        if (/^\s*constraintset\b/.test(first)) {
+            if (first.indexOf(header) === 0) {
+                rest = first.slice(header.length);
+            }
+            range = new this._monaco.Range(1, 1, 1, model.getLineMaxColumn(1));
+            text = header + (rest ? eol + rest : '');
+        } else {
+            range = new this._monaco.Range(1, 1, 1, 1);
+            text = header + eol;
+        }
+        this._guard = true;
+        model.applyEdits([{range: range, text: text}]);
+        this._guard = false;
+        this._markHeader();
+    };
+
+    LeanEditorWidget.prototype._blockHeaderEdit = function (event) {
+        var selection;
+        var start;
+        var code;
+        var KeyCode;
+        if (!this._editor || !this._headerLine) {
+            return;
+        }
+        selection = this._editor.getSelection();
+        if (!selection) {
+            return;
+        }
+        start = selection.getStartPosition();
+        code = event.keyCode;
+        KeyCode = this._monaco.KeyCode;
+        if (start.lineNumber !== 1) {
+            if (code === KeyCode.Backspace &&
+                    selection.isEmpty() &&
+                    start.lineNumber === 2 &&
+                    start.column === 1) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            return;
+        }
+        if (event.ctrlKey || event.metaKey || event.altKey) {
+            if (code === KeyCode.KeyV || code === KeyCode.KeyX) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            return;
+        }
+        if (code === KeyCode.LeftArrow || code === KeyCode.RightArrow ||
+                code === KeyCode.UpArrow || code === KeyCode.DownArrow ||
+                code === KeyCode.PageUp || code === KeyCode.PageDown ||
+                code === KeyCode.Home || code === KeyCode.End ||
+                code === KeyCode.Escape) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
     };
 
     LeanEditorWidget.prototype.getContent = function () {
@@ -293,12 +448,300 @@ define([
     LeanEditorWidget.prototype.onDeactivate = function () {
     };
 
+    function cheatElement(tag, className, text) {
+        var node = document.createElement(tag);
+        if (className) {
+            node.className = className;
+        }
+        if (text !== undefined && text !== null) {
+            node.textContent = text;
+        }
+        return node;
+    }
+
+    function typesByName(types) {
+        var index = {};
+        (types || []).forEach(function (type) {
+            if (type && type.name) {
+                index[type.name] = type;
+            }
+        });
+        return index;
+    }
+
+    function typeChain(index, type) {
+        var chain = [];
+        var seen = {};
+        var current = type;
+        while (current && !seen[current.name]) {
+            seen[current.name] = true;
+            chain.push(current);
+            current = current.baseType ? index[current.baseType] : null;
+        }
+        return chain;
+    }
+
+    function inheritedMembers(chain, field) {
+        var seen = {};
+        var members = [];
+        chain.forEach(function (type) {
+            (type[field] || []).forEach(function (item) {
+                if (!item || !item.name || seen[item.name]) {
+                    return;
+                }
+                seen[item.name] = true;
+                members.push({item: item, owner: type.name});
+            });
+        });
+        return members;
+    }
+
+    function sampleConcept(index, concepts) {
+        var best = concepts.length ? concepts[0] : null;
+        concepts.forEach(function (name) {
+            var type = index[name];
+            var bestType = index[best];
+            var score = (type.containments || []).length * 10 + (type.pointers || []).length;
+            var bestScore = (bestType.containments || []).length * 10 + (bestType.pointers || []).length;
+            if (score > bestScore) {
+                best = name;
+            }
+        });
+        return best ? index[best] : null;
+    }
+
+    function exampleVariable(typeName) {
+        var letter = (typeName || 'x').charAt(0).toLowerCase();
+        return /[a-z]/.test(letter) ? letter : 'x';
+    }
+
+    function fillCheatSheet(body, vocabulary, scope) {
+        var index = typesByName(vocabulary && vocabulary.types);
+        var concepts = Object.keys(index).filter(function (name) {
+            return name !== 'FCO' && name !== 'META';
+        }).sort();
+        var sample = sampleConcept(index, concepts);
+        var sampleVar = sample ? exampleVariable(sample.name) : 'x';
+        var sampleChain = sample ? typeChain(index, sample) : [];
+        var sampleAttrs = inheritedMembers(sampleChain, 'attributes');
+        var samplePtrs = inheritedMembers(sampleChain, 'pointers');
+        var intro = cheatElement('p');
+        var shape = cheatElement('pre', 'lean-cheat-pre');
+        var conceptsTitle = cheatElement('h3', null, 'Concepts');
+
+        intro.textContent = scope === 'ROOT'
+            ? 'Constraints in this set are checked across the whole project.'
+            : scope
+                ? 'Constraints in this set are checked inside one ' + scope + '.'
+                : 'Choose a scope concept to say which model these constraints describe.';
+        body.appendChild(intro);
+
+        body.appendChild(cheatElement('h3', null, 'Shape'));
+        shape.textContent = [
+            scope ? 'constraintset Name for ' + scope : 'constraintset Name for ScopeType',
+            '',
+            'constraint Name [error]',
+            sample
+                ? 'forall ' + sampleVar + ' in ' + sample.name + ':'
+                : 'forall x in Type:',
+            sampleAttrs.length
+                ? '  ' + sampleVar + '.' + sampleAttrs[0].item.name + ' != ""'
+                : '  true'
+        ].join('\n');
+        body.appendChild(shape);
+        body.appendChild(cheatElement('p', 'lean-cheat-meta',
+            'Severity is error, warning, or info. exists asks for one match. where filters the matches.'));
+
+        body.appendChild(cheatElement('h3', null, 'Navigation'));
+        body.appendChild(cheatElement('pre', 'lean-cheat-pre', [
+            'node.attribute',
+            'node->pointer',
+            'node[set]',
+            'node.children',
+            'node.parent',
+            'node.siblings'
+        ].join('\n')));
+
+        body.appendChild(cheatElement('h3', null, 'Checks'));
+        body.appendChild(cheatElement('pre', 'lean-cheat-pre', cheatPatterns(index, concepts, scope)));
+
+        body.appendChild(conceptsTitle);
+        if (!concepts.length) {
+            body.appendChild(cheatElement('p', null, 'This project has no concepts yet.'));
+            return;
+        }
+        concepts.forEach(function (name) {
+            body.appendChild(renderConcept(index, index[name]));
+        });
+    }
+
+    function cheatPatterns(index, concepts, scope) {
+        var lines = [];
+        var contained = null;
+        var pointerOwner = null;
+        concepts.forEach(function (name) {
+            var type = index[name];
+            (type.containments || []).forEach(function (child) {
+                if (!contained && child.childType) {
+                    contained = child.childType;
+                }
+            });
+            if (!pointerOwner && type.pointers && type.pointers.length) {
+                pointerOwner = type;
+            }
+        });
+        if (contained) {
+            lines.push('count(' + contained + ') == 1');
+            lines.push('isEmpty(' + contained + ')');
+        } else if (concepts.length) {
+            lines.push('count(' + concepts[0] + ') == 1');
+        }
+        if (pointerOwner) {
+            var variable = exampleVariable(pointerOwner.name);
+            var pointer = pointerOwner.pointers[0];
+            lines.push('forall ' + variable + ' in ' + pointerOwner.name + ':');
+            lines.push('  ' + variable + '->' + pointer.name + ' != null');
+            lines.push('pointingTo(' + variable + ', ' + pointerOwner.name + ', "' + pointer.name + '")');
+        }
+        if (concepts.length > 1) {
+            lines.push('unique(' + concepts[0] + ', "name")');
+        }
+        if (!lines.length) {
+            lines.push('count(Type) == 1');
+        }
+        if (scope === 'ROOT') {
+            lines.unshift('// checked across the whole project');
+        } else if (scope) {
+            lines.unshift('// checked for one ' + scope);
+        }
+        return lines.join('\n');
+    }
+
+    function renderConcept(index, type) {
+        var section = cheatElement('section');
+        var chain = typeChain(index, type);
+        var title = type.name + (type.isAbstract ? '  abstract' : '');
+        var base = type.baseType && type.baseType !== 'FCO'
+            ? 'extends ' + type.baseType
+            : '';
+        var attributes = inheritedMembers(chain, 'attributes');
+        var pointers = inheritedMembers(chain, 'pointers');
+        var sets = inheritedMembers(chain, 'sets');
+        var lines = [];
+
+        section.appendChild(cheatElement('h4', null, title));
+        if (base) {
+            section.appendChild(cheatElement('p', 'lean-cheat-meta', base));
+        }
+        attributes.forEach(function (entry) {
+            var suffix = entry.owner === type.name ? '' : '  (from ' + entry.owner + ')';
+            lines.push('.' + entry.item.name + ' : ' + (entry.item.type || 'string') + suffix);
+        });
+        pointers.forEach(function (entry) {
+            var targets = (entry.item.targetTypes || []).join(', ');
+            var suffix = entry.owner === type.name ? '' : '  (from ' + entry.owner + ')';
+            lines.push('-> ' + entry.item.name + (targets ? ' : ' + targets : '') + suffix);
+        });
+        sets.forEach(function (entry) {
+            var suffix = entry.owner === type.name ? '' : '  (from ' + entry.owner + ')';
+            lines.push('[' + entry.item.name + ']' + suffix);
+        });
+        (type.containments || []).forEach(function (child) {
+            lines.push('contains ' + child.childType);
+        });
+        if (lines.length) {
+            section.appendChild(cheatElement('pre', 'lean-cheat-pre', lines.join('\n')));
+        } else {
+            section.appendChild(cheatElement('p', 'lean-cheat-meta', 'No attributes, pointers, or sets.'));
+        }
+        return section;
+    }
+
+    LeanEditorWidget.prototype.isCheatSheetOpen = function () {
+        return !!(this._sheet && this._sheet.parentNode);
+    };
+
+    LeanEditorWidget.prototype.toggleCheatSheet = function (scope) {
+        if (this.isCheatSheetOpen()) {
+            this.hideCheatSheet();
+            return false;
+        }
+        this.showCheatSheet(scope);
+        return true;
+    };
+
+    LeanEditorWidget.prototype.showCheatSheet = function (scope) {
+        var self = this;
+        var body;
+        var vocabulary = metaLean.vocabulary(this._client);
+        if (!this._sheet) {
+            this._sheet = document.createElement('aside');
+            this._sheet.className = 'lean-cheat-sheet';
+            this._sheet.innerHTML = '' +
+                '<div class="lean-cheat-head">' +
+                    '<button type="button" class="close" aria-label="Close">&times;</button>' +
+                    '<div class="lean-cheat-title">Cheat sheet</div>' +
+                '</div>' +
+                '<div class="lean-cheat-body"></div>';
+            this._sheet.querySelector('.close').addEventListener('click', function () {
+                self.hideCheatSheet();
+                if (typeof self.onCheatSheetToggle === 'function') {
+                    self.onCheatSheetToggle(false);
+                }
+            });
+            document.body.appendChild(this._sheet);
+        }
+        body = this._sheet.querySelector('.lean-cheat-body');
+        body.innerHTML = '';
+        fillCheatSheet(body, vocabulary, scope || '');
+    };
+
+    LeanEditorWidget.prototype.hideCheatSheet = function () {
+        if (this._sheet && this._sheet.parentNode) {
+            this._sheet.parentNode.removeChild(this._sheet);
+        }
+        this._sheet = null;
+    };
+
     LeanEditorWidget.prototype.destroy = function () {
+        this.hideCheatSheet();
+        this._hideDialog();
         if (this._editor) {
             this._editor.dispose();
             this._editor = null;
         }
         this._el.empty();
+    };
+
+    LeanEditorWidget.prototype.isCursorInConstraint = function () {
+        var model;
+        var selection;
+        var line;
+        var text;
+
+        if (!this._editor) {
+            return false;
+        }
+        model = this._editor.getModel();
+        selection = this._editor.getSelection();
+        if (!model || !selection) {
+            return false;
+        }
+        line = selection.startLineNumber;
+        while (line > 1 && !/^\s*constraint\s+\w+/.test(model.getLineContent(line))) {
+            text = model.getLineContent(line - 1);
+            if (text.trim() === '' || /^\s*(constraintset|define)\b/.test(text)) {
+                return false;
+            }
+            line -= 1;
+        }
+        return /^\s*constraint\s+\w+/.test(model.getLineContent(line));
+    };
+
+    LeanEditorWidget.prototype._notifyConstraintCursor = function () {
+        if (typeof this.onConstraintCursor === 'function') {
+            this.onConstraintCursor(this.isCursorInConstraint());
+        }
     };
 
     LeanEditorWidget.prototype._constraintAtCursor = function () {
@@ -345,30 +788,45 @@ define([
         )).trim();
     };
 
-    LeanEditorWidget.prototype._ensureDialog = function () {
-        var self = this;
+    LeanEditorWidget.prototype._hideDialog = function () {
         if (this._dialog) {
-            return;
+            this._dialog.modal('hide');
         }
-        this._dialog = document.createElement('div');
-        this._dialog.className = 'lean-nl-dialog';
-        this._dialog.innerHTML = '' +
-            '<div class="lean-nl-title"><span class="lean-nl-heading"></span>' +
-            '<button type="button" class="lean-nl-close" title="Close">&times;</button></div>' +
-            '<div class="lean-nl-body"></div>';
-        this._dialog.querySelector('.lean-nl-close').addEventListener('click', function () {
-            self._dialog.style.display = 'none';
-        });
-        this._el.append(this._dialog);
     };
 
     LeanEditorWidget.prototype._showDialog = function (title, fill) {
-        this._ensureDialog();
-        this._dialog.querySelector('.lean-nl-heading').textContent = title;
-        var body = this._dialog.querySelector('.lean-nl-body');
-        body.innerHTML = '';
+        var self = this;
+        var body;
+
+        this._hideDialog();
+        this._dialog = $(
+            '<div class="lean-nl-dialog modal fade" tabindex="-1" role="dialog">' +
+                '<div class="modal-dialog">' +
+                    '<div class="modal-content">' +
+                        '<div class="modal-header">' +
+                            '<button type="button" class="close" data-dismiss="modal">&times;</button>' +
+                            '<h4 class="modal-title"></h4>' +
+                        '</div>' +
+                        '<div class="modal-body"></div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>'
+        );
+        this._dialog.find('.modal-title').text(title);
+        body = this._dialog.find('.modal-body').get(0);
         fill(body);
-        this._dialog.style.display = 'flex';
+        this._dialog.on('hidden.bs.modal', function () {
+            var dialog = $(this);
+            dialog.remove();
+            if (self._dialog && self._dialog[0] === dialog[0]) {
+                self._dialog = null;
+            }
+        });
+        this._dialog.modal({
+            backdrop: 'static',
+            keyboard: true,
+            show: true
+        });
     };
 
     LeanEditorWidget.prototype._postJson = function (path, payload) {
@@ -479,7 +937,7 @@ define([
                     insert.textContent = 'Insert';
                     insert.addEventListener('click', function () {
                         self._insertText(result.body.constraint);
-                        self._dialog.style.display = 'none';
+                        self._hideDialog();
                     });
                     status.appendChild(preview);
                     if (note.textContent) {
@@ -503,6 +961,114 @@ define([
         });
     };
 
+    LeanEditorWidget.prototype.openValidateDialog = function (options) {
+        var self = this;
+        var scope = options.scope || 'model';
+
+        this._showDialog('Validate', function (body) {
+            var intro = document.createElement('p');
+            var select;
+            var actions;
+            var button;
+            var status;
+            var wholeProject = scope === 'ROOT';
+
+            intro.textContent = wholeProject
+                ? 'Check the whole project.'
+                : options.instances.length
+                    ? 'Choose a ' + scope + ' to check.'
+                    : 'There is no ' + scope + ' in the project.';
+            body.appendChild(intro);
+            if (!wholeProject && !options.instances.length) {
+                return;
+            }
+
+            actions = document.createElement('div');
+            actions.className = 'lean-nl-actions';
+            button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn btn-primary';
+            button.textContent = 'Validate';
+            status = document.createElement('div');
+            status.className = 'lean-nl-result';
+            actions.appendChild(button);
+            if (!wholeProject) {
+                select = document.createElement('select');
+                select.className = 'form-control';
+                var placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = 'Choose a model';
+                select.appendChild(placeholder);
+                options.instances.forEach(function (item, index) {
+                    var option = document.createElement('option');
+                    option.value = String(index);
+                    option.textContent = item.label;
+                    select.appendChild(option);
+                });
+                body.appendChild(select);
+            }
+            body.appendChild(actions);
+            body.appendChild(status);
+
+            button.addEventListener('click', function () {
+                var nodeId = '';
+                if (!wholeProject) {
+                    if (select.value === '') {
+                        status.textContent = 'Choose a model first.';
+                        return;
+                    }
+                    nodeId = options.instances[Number(select.value)].id;
+                }
+                status.textContent = 'Checking…';
+                button.disabled = true;
+                options.run(nodeId).then(function (result) {
+                    button.disabled = false;
+                    self._renderValidation(status, result);
+                }).catch(function (err) {
+                    button.disabled = false;
+                    status.innerHTML = '';
+                    var error = document.createElement('p');
+                    error.className = 'lean-nl-error';
+                    error.textContent = err.message || String(err);
+                    status.appendChild(error);
+                });
+            });
+        });
+    };
+
+    LeanEditorWidget.prototype._renderValidation = function (status, result) {
+        var messages = result && result.messages || [];
+        status.innerHTML = '';
+        if (result && result.error && !messages.length) {
+            var failure = document.createElement('p');
+            failure.className = 'lean-nl-error';
+            failure.textContent = result.error;
+            status.appendChild(failure);
+            return;
+        }
+        if (!messages.length) {
+            var fine = document.createElement('p');
+            fine.className = 'lean-nl-ok';
+            fine.textContent = 'The model is fine.';
+            status.appendChild(fine);
+            return;
+        }
+        messages.forEach(function (message) {
+            var line = document.createElement('p');
+            var severity = message.severity || 'info';
+            var nodeName = message.activeNode && message.activeNode.name;
+            if (severity === 'error') {
+                line.className = 'lean-nl-error';
+            } else if (severity === 'warning') {
+                line.className = 'lean-nl-warning';
+            } else {
+                line.className = 'lean-nl-ok';
+            }
+            line.textContent = (nodeName ? nodeName + ': ' : '') + (message.message || '');
+            status.appendChild(line);
+        });
+    };
+
     LeanEditorWidget.prototype._insertText = function (text) {
         var model;
         var position;
@@ -513,8 +1079,11 @@ define([
         }
         model = this._editor.getModel();
         position = this._editor.getPosition();
+        if (!position || position.lineNumber < 2) {
+            position = {lineNumber: Math.max(2, model.getLineCount()), column: 1};
+        }
         prefix = '';
-        if (model.getValue()) {
+        if (model.getLineContent(position.lineNumber).trim()) {
             prefix = model.getEOL() + model.getEOL();
         }
         this._editor.executeEdits('describe', [{

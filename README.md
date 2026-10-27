@@ -212,10 +212,7 @@ The project includes a full-featured WebGME visualizer with Monaco Editor (VS Co
 
 ### Storage
 
-Constraints are stored as a **registry item** named `constraints` at the project root (or FCO). This allows:
-- Persistence across sessions
-- Version control with the model
-- Easy export/import
+Constraints are stored as a **registry item** named `constraints` at the project root. The value is a JSON string, `{ "text", "scope" }`. `text` is the constraint dialect and `scope` is the concept it applies to, such as `StateChart`. `ROOT` is the default and means the whole project. A plain string from an older project is still read as the text, and the scope is taken from its `constraintset ... for` line.
 
 ### Screenshot
 
@@ -512,11 +509,17 @@ const webgmeConfig = router.webgmeRouterConfig();
 
 ### Constraint Manager popups
 
-The Constraint Manager toolbar has two buttons.
+The Constraint Manager toolbar holds the scope, the editor actions, and validation.
 
-**Explain** reads the constraint at the cursor, or the selection, and shows a sentence. That call does not use a model.
+**Scope** lists ROOT and the concepts in the META. ROOT is the default and checks the whole project. Choosing one stores it in the constraints registry immediately and rewrites the first line, `constraintset … for …`. That line is always present and cannot be edited in the text.
 
-**Describe** opens a popup. The description is sent to `POST /leanllm/translate`, which calls an OpenAI-compatible chat endpoint and can insert the constraint it returns.
+**Cheat sheet** opens a panel on the right side of the window. It stays open while you edit, and its examples use the concepts of the current project.
+
+**Explain** reads the constraint at the cursor and shows a sentence. The button stays disabled until the cursor is inside a constraint. That call does not use a model.
+
+**Describe** opens a dialog. The description is sent to `POST /leanllm/translate`, which calls an OpenAI-compatible chat endpoint and can insert the constraint it returns. The button stays disabled until `GET /leanllm/status` can reach the configured model.
+
+**Validate** checks the model with the `ValidateConstraints` plugin. For ROOT it checks the whole project. For any other scope it asks for a direct instance of that concept. The result is the failing constraints, or that the model is fine. The plugin is loaded when the WebGME server starts.
 
 Point the endpoint at vLLM, llama.cpp, or Ollama in `config/config.default.js`:
 

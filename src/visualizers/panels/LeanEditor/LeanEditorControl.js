@@ -9,35 +9,18 @@
 define([
     'js/Constants',
     'js/Utils/GMEConcepts',
-    'js/NodePropertyNames'
+    'js/NodePropertyNames',
+    'webgme-lean/constraintCheck'
 ], function (
     CONSTANTS,
     GMEConcepts,
-    nodePropertyNames
+    nodePropertyNames,
+    constraintCheck
 ) {
     'use strict';
 
     var REGISTRY_KEY = 'constraints';
-
-    function constraintText(raw) {
-        if (typeof raw !== 'string' || raw === '') {
-            return '';
-        }
-        var trimmed = raw.trim();
-        if (trimmed.charAt(0) === '{') {
-            try {
-                var parsed = JSON.parse(trimmed);
-                if (parsed && typeof parsed === 'object' &&
-                        (Object.prototype.hasOwnProperty.call(parsed, 'fix') ||
-                            Object.prototype.hasOwnProperty.call(parsed, 'user'))) {
-                    return '';
-                }
-            } catch (err) {
-                return raw;
-            }
-        }
-        return raw;
-    }
+    var TREE_DEPTH = 40;
 
     function LeanEditorControl(options) {
         this._logger = options.logger.fork('Control');
@@ -46,6 +29,7 @@ define([
 
         this._currentNodeId = null;
         this._rootNodeId = null;
+        this._scope = constraintCheck.DEFAULT_SCOPE;
         this._territoryId = null;
         this._patterns = {};
 
@@ -74,7 +58,7 @@ define([
         }, 'LeanEditor_' + Date.now());
 
         this._patterns = {};
-        this._patterns[this._rootNodeId] = { children: 0 };
+        this._patterns[this._rootNodeId] = { children: TREE_DEPTH };
 
         this._client.updateTerritory(this._territoryId, this._patterns);
     };
@@ -100,15 +84,26 @@ define([
             return;
         }
 
-        var text = constraintText(rootNode.getRegistry(REGISTRY_KEY));
-        this._widget.setContent(text);
+        var stored = constraintCheck.readStored(rootNode.getRegistry(REGISTRY_KEY));
+        this._scope = stored.scope || constraintCheck.DEFAULT_SCOPE;
+        this._widget.setContent(constraintCheck.ensureHeader(stored.text, this._scope));
+        this._syncScopeControl();
 
-        this._logger.debug('Loaded constraints, length:', text.length);
+        this._logger.debug('Loaded constraints, length:', stored.text.length, 'scope:', stored.scope);
     };
 
     LeanEditorControl.prototype.saveContent = function (text) {
+        var next;
+        this._scope = this._scope || constraintCheck.DEFAULT_SCOPE;
+        next = constraintCheck.ensureHeader(text, this._scope);
+        if (next !== text) {
+            this._widget.setContent(next);
+        }
+        return this._persist(next, this._scope);
+    };
+
+    LeanEditorControl.prototype._persist = function (text, scope) {
         var self = this;
-        var stored = typeof text === 'string' ? text : '';
 
         if (typeof this._rootNodeId !== 'string') {
             this._logger.error('No root node to save to');
@@ -118,9 +113,13 @@ define([
         return new Promise(function (resolve, reject) {
             try {
                 self._client.startTransaction('Update constraints');
-                self._client.setRegistry(self._rootNodeId, REGISTRY_KEY, stored);
+                self._client.setRegistry(
+                    self._rootNodeId,
+                    REGISTRY_KEY,
+                    constraintCheck.writeStored(text, scope)
+                );
                 self._client.completeTransaction('Updated constraints');
-                self._logger.debug('Saved constraints');
+                self._logger.debug('Saved constraints, scope:', scope);
                 resolve();
             } catch (err) {
                 self._logger.error('Failed to save:', err);
@@ -139,7 +138,7 @@ define([
             return '';
         }
 
-        return constraintText(rootNode.getRegistry(REGISTRY_KEY));
+        return constraintCheck.readStored(rootNode.getRegistry(REGISTRY_KEY)).text;
     };
 
     LeanEditorControl.prototype._stateActiveObjectChanged = function (model, activeObjectId) {
@@ -152,6 +151,8 @@ define([
     LeanEditorControl.prototype.onActivate = function () {
         this._attachClientEventListeners();
         this._displayToolbarItems();
+        this._setExplainEnabled(this._widget.isCursorInConstraint());
+        this._startDescribeWatch();
 
         if (typeof this._currentNodeId === 'string') {
             var nodeId = this._currentNodeId;
@@ -161,6 +162,9 @@ define([
     };
 
     LeanEditorControl.prototype.onDeactivate = function () {
+        this._stopDescribeWatch();
+        this._widget.hideCheatSheet();
+        this._setCheatSheetButton(false);
         this._detachClientEventListeners();
         this._hideToolbarItems();
     };
@@ -208,6 +212,14 @@ define([
 
         this._toolbarItems.push(toolBar.addSeparator());
 
+        this.$btnScope = toolBar.addDropDownButton({
+            title: 'Scope concept',
+            icon: 'glyphicon glyphicon-tag',
+            left: true,
+            text: 'Scope'
+        });
+        this._toolbarItems.push(this.$btnScope);
+
         this.$btnSave = toolBar.addButton({
             title: 'Save the constraints on the project root',
             icon: 'glyphicon glyphicon-floppy-disk',
@@ -230,28 +242,304 @@ define([
         });
         this._toolbarItems.push(this.$btnTheme);
 
+        this.$btnSheet = toolBar.addButton({
+            title: 'Show the constraint cheat sheet',
+            icon: 'glyphicon glyphicon-list-alt',
+            clickFn: function () {
+                self._toggleCheatSheet();
+            }
+        });
+        this._toolbarItems.push(this.$btnSheet);
+        this._widget.onCheatSheetToggle = function (open) {
+            self._setCheatSheetButton(open);
+        };
+
         this.$btnExplain = toolBar.addButton({
-            title: 'Explain the constraint at the cursor',
+            title: 'Place the cursor in a constraint',
             icon: 'glyphicon glyphicon-info-sign',
             clickFn: function () {
                 self._widget.explainAtCursor();
             }
         });
         this._toolbarItems.push(this.$btnExplain);
+        this.$btnExplain.enabled(false);
 
         this.$btnDescribe = toolBar.addButton({
-            title: 'Write a constraint from a description',
+            title: 'Checking the model server',
             icon: 'glyphicon glyphicon-comment',
             clickFn: function () {
                 self._widget.openDescribePopup();
             }
         });
         this._toolbarItems.push(this.$btnDescribe);
+        this.$btnDescribe.enabled(false);
+
+        this.$btnValidate = toolBar.addButton({
+            title: 'Validate the whole project',
+            icon: 'glyphicon glyphicon-ok',
+            clickFn: function () {
+                self._openValidate();
+            }
+        });
+        this._toolbarItems.push(this.$btnValidate);
+
+        this._widget.onConstraintCursor = function (active) {
+            self._setExplainEnabled(active);
+        };
+        this._setExplainEnabled(this._widget.isCursorInConstraint());
+        this._refreshDescribe();
+        this._syncScopeControl();
 
         this._toolbarInitialized = true;
     };
 
+    LeanEditorControl.prototype._conceptByName = function (name) {
+        var concepts = this._concepts();
+        var i;
+        for (i = 0; i < concepts.length; i += 1) {
+            if (concepts[i].name === name) {
+                return concepts[i];
+            }
+        }
+        return null;
+    };
+
+    LeanEditorControl.prototype._concepts = function () {
+        var meta = this._client.getAllMetaNodes(true) || {};
+        var list = [];
+        Object.keys(meta).forEach(function (path) {
+            var node = meta[path];
+            var name = node && node.getAttribute('name');
+            if (!name || name === 'FCO' || name === 'META') {
+                return;
+            }
+            list.push({name: name, path: path});
+        });
+        list.sort(function (a, b) {
+            return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+        });
+        return list;
+    };
+
+    LeanEditorControl.prototype._syncScopeControl = function () {
+        var self = this;
+        var concepts;
+        if (!this.$btnScope) {
+            return;
+        }
+        concepts = this._concepts();
+        this.$btnScope.clear();
+        this.$btnScope.addButton({
+            text: 'ROOT',
+            title: 'The whole project',
+            data: {name: constraintCheck.DEFAULT_SCOPE},
+            clickFn: function (data) {
+                self._setScope(data.name);
+            }
+        });
+        concepts.forEach(function (concept) {
+            if (concept.name === constraintCheck.DEFAULT_SCOPE) {
+                return;
+            }
+            self.$btnScope.addButton({
+                text: concept.name,
+                title: concept.path,
+                data: {name: concept.name},
+                clickFn: function (data) {
+                    self._setScope(data.name);
+                }
+            });
+        });
+        this._scope = this._scope || constraintCheck.DEFAULT_SCOPE;
+        this.$btnScope.dropDownText(this._scope);
+        if (this.$btnValidate) {
+            this.$btnValidate.enabled(true);
+            this.$btnValidate.el.find('a').attr('title', this._scope === constraintCheck.DEFAULT_SCOPE
+                ? 'Validate the whole project'
+                : 'Validate a ' + this._scope);
+        }
+    };
+
+    LeanEditorControl.prototype._setScope = function (name) {
+        var text;
+        if (!name || name === this._scope) {
+            this._syncScopeControl();
+            return;
+        }
+        this._scope = name;
+        text = constraintCheck.ensureHeader(this._widget.getContent(), name);
+        this._widget.setContent(text);
+        this._syncScopeControl();
+        this._persist(text, name);
+        if (this._widget.isCheatSheetOpen()) {
+            this._widget.showCheatSheet(this._scope);
+        }
+    };
+
+    LeanEditorControl.prototype._toggleCheatSheet = function () {
+        var open = this._widget.toggleCheatSheet(this._scope);
+        this._setCheatSheetButton(open);
+    };
+
+    LeanEditorControl.prototype._setCheatSheetButton = function (open) {
+        if (!this.$btnSheet) {
+            return;
+        }
+        this.$btnSheet.el.find('a').attr('title', open
+            ? 'Hide the constraint cheat sheet'
+            : 'Show the constraint cheat sheet');
+    };
+
+    LeanEditorControl.prototype._instancesOf = function (conceptPath) {
+        var found = [];
+        var counts = {};
+
+        function walk(id) {
+            var node = selfClient.getNode(id);
+            if (!node) {
+                return;
+            }
+            if (!node.isMetaNode() && node.getMetaTypeId() === conceptPath) {
+                found.push({
+                    id: id,
+                    label: node.getAttribute('name') || (id === '' ? 'ROOT' : id)
+                });
+            }
+            (node.getChildrenIds() || []).forEach(walk);
+        }
+
+        var selfClient = this._client;
+        walk('');
+        found.forEach(function (item) {
+            counts[item.label] = (counts[item.label] || 0) + 1;
+        });
+        found.forEach(function (item) {
+            if (counts[item.label] > 1) {
+                item.label = item.label + ' (' + (item.id || '/') + ')';
+            }
+        });
+        return found;
+    };
+
+    LeanEditorControl.prototype._openValidate = function () {
+        var self = this;
+        var concept;
+        var scope = this._scope || constraintCheck.DEFAULT_SCOPE;
+        if (scope === constraintCheck.DEFAULT_SCOPE) {
+            this._widget.openValidateDialog({
+                scope: scope,
+                instances: [{id: '', label: 'ROOT'}],
+                run: function () {
+                    return self._runValidate('');
+                }
+            });
+            return;
+        }
+        concept = this._conceptByName(scope);
+        this._widget.openValidateDialog({
+            scope: scope,
+            instances: concept ? this._instancesOf(concept.path) : [],
+            run: function (nodeId) {
+                return self._runValidate(nodeId);
+            }
+        });
+    };
+
+    LeanEditorControl.prototype._runValidate = function (nodeId) {
+        var self = this;
+        var scope = this._scope || constraintCheck.DEFAULT_SCOPE;
+        var text = constraintCheck.ensureHeader(this._widget.getContent(), scope);
+
+        return this._persist(text, scope).catch(function () {
+            return null;
+        }).then(function () {
+            return self._whenSynced();
+        }).then(function () {
+            return new Promise(function (resolve) {
+                var context = self._client.getCurrentPluginContext('ValidateConstraints', nodeId, []);
+                context.pluginConfig = {text: text, scope: scope};
+                self._client.runServerPlugin('ValidateConstraints', context, function (err, result) {
+                    if (err) {
+                        resolve({
+                            error: err.message || String(err),
+                            messages: result && result.messages || []
+                        });
+                        return;
+                    }
+                    resolve({
+                        error: '',
+                        messages: result && result.messages || []
+                    });
+                });
+            });
+        });
+    };
+
+    LeanEditorControl.prototype._whenSynced = function () {
+        var self = this;
+        return new Promise(function (resolve) {
+            var tries = 0;
+            (function tick() {
+                var status = self._client.getBranchStatus();
+                if (!status || status === 'SYNC' || tries > 25) {
+                    resolve();
+                    return;
+                }
+                tries += 1;
+                setTimeout(tick, 200);
+            }());
+        });
+    };
+
+    LeanEditorControl.prototype._setExplainEnabled = function (active) {
+        if (!this.$btnExplain) {
+            return;
+        }
+        this.$btnExplain.enabled(!!active);
+        this.$btnExplain.el.find('a').attr('title', active
+            ? 'Explain the constraint at the cursor'
+            : 'Place the cursor in a constraint');
+    };
+
+    LeanEditorControl.prototype._refreshDescribe = function () {
+        var self = this;
+        if (!this.$btnDescribe) {
+            return;
+        }
+        fetch('/leanllm/status')
+            .then(function (response) { return response.json(); })
+            .then(function (body) {
+                var ok = !!(body && body.ok);
+                var title = ok
+                    ? 'Write a constraint from a description'
+                    : ((body && body.reason) || 'The model server is not available');
+                self.$btnDescribe.enabled(ok);
+                self.$btnDescribe.el.find('a').attr('title', title);
+            })
+            .catch(function () {
+                self.$btnDescribe.enabled(false);
+                self.$btnDescribe.el.find('a').attr('title', 'The model check failed');
+            });
+    };
+
+    LeanEditorControl.prototype._startDescribeWatch = function () {
+        var self = this;
+        this._stopDescribeWatch();
+        this._refreshDescribe();
+        this._describeTimer = setInterval(function () {
+            self._refreshDescribe();
+        }, 10000);
+    };
+
+    LeanEditorControl.prototype._stopDescribeWatch = function () {
+        if (this._describeTimer) {
+            clearInterval(this._describeTimer);
+            this._describeTimer = null;
+        }
+    };
+
     LeanEditorControl.prototype.destroy = function () {
+        this._stopDescribeWatch();
         this._detachClientEventListeners();
         this._removeToolbarItems();
 

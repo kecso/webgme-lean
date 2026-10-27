@@ -51,6 +51,107 @@ function publicLlm(settings) {
     };
 }
 
+const STATUS_TIMEOUT_MS = 2500;
+
+function modelIds(payload) {
+    var data = payload && (payload.data || payload.models);
+    var ids = [];
+    if (!Array.isArray(data)) {
+        return null;
+    }
+    data.forEach(function (item) {
+        if (!item) {
+            return;
+        }
+        if (typeof item === 'string') {
+            ids.push(item);
+        } else if (item.id || item.name) {
+            ids.push(item.id || item.name);
+        }
+    });
+    return ids;
+}
+
+async function modelStatus(settings) {
+    var url;
+    var headers;
+    var controller;
+    var timer;
+    var response;
+    var text;
+    var payload;
+    var ids;
+
+    if (settings.backend !== 'openai') {
+        return {
+            ok: false,
+            reason: 'Describe needs an OpenAI-compatible endpoint. Set llm.backend to openai.'
+        };
+    }
+    if (!settings.model) {
+        return {
+            ok: false,
+            reason: 'Set llm.model in the leanllm component config.'
+        };
+    }
+    if (!settings.baseUrl) {
+        return {
+            ok: false,
+            reason: 'Set llm.baseUrl in the leanllm component config.'
+        };
+    }
+
+    url = settings.baseUrl.replace(/\/$/, '') + '/models';
+    headers = {};
+    if (settings.apiKey) {
+        headers.Authorization = 'Bearer ' + settings.apiKey;
+    }
+    controller = new AbortController();
+    timer = setTimeout(function () { controller.abort(); }, STATUS_TIMEOUT_MS);
+    try {
+        response = await fetch(url, { method: 'GET', headers: headers, signal: controller.signal });
+        text = await response.text();
+        if (!response.ok) {
+            return {
+                ok: false,
+                reason: 'The model server returned ' + response.status + '.'
+            };
+        }
+        try {
+            payload = JSON.parse(text);
+        } catch (err) {
+            return {
+                ok: false,
+                reason: 'The model server did not return a model list.'
+            };
+        }
+        ids = modelIds(payload);
+        if (!ids || ids.length === 0) {
+            return {
+                ok: false,
+                reason: 'The model server is up, but it is not serving a model.'
+            };
+        }
+        if (ids.indexOf(settings.model) === -1) {
+            return {
+                ok: false,
+                reason: 'The model server is up, but it is not serving "' + settings.model + '".'
+            };
+        }
+        return { ok: true, reason: '' };
+    } catch (err) {
+        if (err && err.name === 'AbortError') {
+            return { ok: false, reason: 'The model server did not respond.' };
+        }
+        return {
+            ok: false,
+            reason: 'The model server at ' + settings.baseUrl + ' is not reachable.'
+        };
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function chatComplete(settings, prompt, systemPrompt) {
     const url = settings.baseUrl.replace(/\/$/, '') + '/chat/completions';
     const headers = { 'Content-Type': 'application/json' };
@@ -119,6 +220,17 @@ function initialize(middlewareOpts) {
             explain: true,
             translate: current.configured
         });
+    });
+
+    router.get('/status', async function (_req, res) {
+        try {
+            const current = resolveLlm(middlewareOpts.gmeConfig);
+            const status = await modelStatus(current);
+            res.json(status);
+        } catch (err) {
+            logger.error('status failed', err);
+            res.status(500).json({ ok: false, reason: err.message || 'The model check failed.' });
+        }
     });
 
     router.post('/explain', async function (req, res) {

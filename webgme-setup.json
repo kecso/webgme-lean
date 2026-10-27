@@ -12,6 +12,9 @@
       "GenerateConstraintLanguage": {
         "src": "src/plugins/GenerateConstraintLanguage",
         "test": "test/plugins/GenerateConstraintLanguage"
+      },
+      "ValidateConstraints": {
+        "src": "src/plugins/ValidateConstraints"
       }
     },
     "routers": {

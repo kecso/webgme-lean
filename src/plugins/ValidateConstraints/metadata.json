@@ -1,0 +1,32 @@
+{
+  "id": "ValidateConstraints",
+  "name": "ValidateConstraints",
+  "version": "0.1.0",
+  "description": "Check the constraints of the whole project, or of one direct instance of the scope concept.",
+  "icon": {
+    "class": "glyphicon glyphicon-ok",
+    "src": ""
+  },
+  "disableServerSideExecution": false,
+  "disableBrowserSideExecution": true,
+  "dependencies": [],
+  "writeAccessRequired": false,
+  "configStructure": [
+    {
+      "name": "scope",
+      "displayName": "Scope concept",
+      "description": "ROOT checks the whole project. Any other value is a meta concept, and the active node must be a direct instance of it. When empty, the scope stored with the constraints is used.",
+      "value": "",
+      "valueType": "string",
+      "readOnly": false
+    },
+    {
+      "name": "text",
+      "displayName": "Constraints",
+      "description": "Constraint text to check. When empty, the constraints registry on the project root is used.",
+      "value": "",
+      "valueType": "string",
+      "readOnly": false
+    }
+  ]
+}
