@@ -51,6 +51,53 @@ export interface ValidationResult {
 }
 
 /**
+ * The model often writes where where the body colon belongs, and leaves a
+ * quantifier bare after not. Both are repaired before the text is checked.
+ */
+export function normalizeGeneratedConstraint(source: string): string {
+  const lines = String(source || '').split('\n').map(line => line
+    .replace(
+      /^(\s*(?:not\s+)?(?:forall|exists)\s+[A-Za-z_]\w*\s+in\s+[A-Za-z_]\w*)\s+where\s*$/,
+      '$1:'
+    )
+    .replace(
+      /\b((?:forall|exists)\s+[A-Za-z_]\w*\s+in\s+[A-Za-z_]\w*)\s+where\s+(?=not\b|forall\b|exists\b)/,
+      '$1: '
+    ));
+  return wrapNegatedQuantifiers(lines);
+}
+
+function wrapNegatedQuantifiers(lines: string[]): string {
+  const next = lines.slice();
+  for (let i = 0; i < next.length; i += 1) {
+    const match = /^(.*\bnot\s+)(exists|forall)\b(.*)$/.exec(next[i]);
+    if (!match) {
+      continue;
+    }
+    next[i] = match[1] + '(' + match[2] + match[3];
+    const base = leadingIndent(next[i]);
+    let end = i;
+    for (let j = i + 1; j < next.length; j += 1) {
+      if (next[j].trim() === '') {
+        end = j;
+        continue;
+      }
+      if (leadingIndent(next[j]) <= base) {
+        break;
+      }
+      end = j;
+    }
+    next[end] = next[end] + ')';
+  }
+  return next.join('\n');
+}
+
+function leadingIndent(line: string): number {
+  const match = /^[ \t]*/.exec(line);
+  return match ? match[0].replace(/\t/g, '  ').length : 0;
+}
+
+/**
  * NL to Constraint Translator
  */
 export class NLConstraintTranslator {
@@ -87,6 +134,9 @@ export class NLConstraintTranslator {
     try {
       const rawOutput = await this.llmProvider.complete(prompt, systemPrompt);
       const parsed = this.parseTranslationResponse(rawOutput);
+      if (parsed.constraint) {
+        parsed.constraint = normalizeGeneratedConstraint(parsed.constraint);
+      }
       
       if (!parsed.constraint) {
         return {
@@ -310,6 +360,19 @@ Your output MUST be valid constraint syntax that can be parsed. Always respond w
 2. A comment describing what it does
 3. The constraint expression using forall/exists quantifiers
 
+A quantifier body always starts with a colon:
+  forall init in InitState:
+    true
+where is only a filter, and it comes before the colon:
+  forall e2 in State where e1.name == e2.name:
+    e1 == e2
+Never write where where the colon belongs.
+
+not, and, or, and implies take expressions. Put a quantifier in parentheses when it is an expression:
+  forall init in InitState:
+    not (exists trans in Transition:
+      trans->dst == init)
+
 Format your response as:
 \`\`\`constraint
 constraint <Name> [severity]
@@ -337,6 +400,8 @@ Remember:
 - Choose an appropriate severity level (error for must-have, warning for should-have, info for nice-to-have)
 - Use descriptive constraint names in PascalCase
 - Add a comment explaining the constraint
+- Start each quantifier body with a colon. Use where only to filter, before the colon
+- Wrap a quantifier in parentheses when it is an expression, as in not (exists t in Transition: t->dst == init)
 
 Respond with the constraint code block followed by a brief explanation.`;
 

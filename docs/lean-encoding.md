@@ -6,7 +6,7 @@ The namespace is the project name. Constraints are definitions of the main type,
 
 ## Concepts
 
-Each meta concept is one section, opened by a line such as `-- State definitions`. The section holds that concept's structure, the children it may contain, and the lookups and bounds for those children. `extends` follows that concept's base. The chain starts at `FCO`, which declares `name`. A concept's own attributes, pointers, and sets are fields on its structure.
+Each meta concept is one section, opened by a line such as `-- State definitions`. The section holds that concept's structure. `extends` follows that concept's base. The chain starts at `FCO`, which declares `name`, `_containment`, and `_parent`. A concept's own attributes, pointers, and sets are fields on its structure.
 
 `_id` is the node's identity. `_type` is the concept the node was created as, with one constructor per concept (`cState`, `cInit`, `cFCO`). `Coe` upcasts a concept to its base. The created-as concept stays on `_type` after that upcast, so an `Init` stored where a `State` is required is still `.cInit`.
 
@@ -16,25 +16,29 @@ A set is a `List` of its member type.
 
 ## Containment
 
-Containment is a meta rule. Each concept declares which concepts may appear as its children, and how many. Without that declaration, a node of one type cannot be a child of a node of another type.
+Containment is one list of child ids on `FCO`. Every concept inherits that field through `extends`, so a long chain still has a single list. `_parent : Option _NodeId` is the id of this node's parent. An instance lists the child ids WebGME created for it. Those are new ids, not the ids stored on the concept definition.
 
-The declaration is an inductive `_OwnerChild`, with one constructor per allowed child concept. The owner's `_containment` field is a `List` of that inductive. A `_Contained` instance for each allowed child reads those nodes back out:
+`allowed` says which child types a concept may hold. The nearest declaration of a child type wins, walking the concept, then its bases, then its mixins. `isA` answers whether a node's created-as concept is that concept, a base, or a mixin. A mixin does not add an `extends` parent. `Coe` still follows the base only.
 
-```lean
-instance : _Contained StateChart State where
-  children parent := parent._containment.filterMap fun
-    | .cState node => some node
-    | _ => none
-```
-
-`(_Contained.children (child := State) m)` is the list of `State` children of `m`.
-
-A `List` already allows zero or more elements. A bound the list does not enforce — a minimum above zero, or a finite maximum — is a `def` of the main type. A bound on a direct child of the main type is checked on each such child:
+Each meta rule is one definition. The name says which concept and which rule. A short comment states the bound.
 
 ```lean
-def StateChart_atLeast_1_Element (m : StateChart) : Bool :=
-  (_Contained.children (child := Element) m).length ≥ 1
+-- Every child of StateChart has a type StateChart may contain.
+def _StateChart_child_type (m : StateChart) (resolve : _NodeId → Option _Type) : Bool :=
+  childrenAllowed m.toFCO resolve
+
+-- StateChart contains 1..2 Element.
+def _StateChart_Element_child_cardinality (m : StateChart) (resolve : _NodeId → Option _Type) : Bool :=
+  (let n := countOfType m._containment .cElement resolve; n ≥ 1 && n ≤ 2)
+
+-- StateChart contains 1..10 children.
+def _StateChart_child_cardinality (m : StateChart) : Bool :=
+  (let n := m._containment.length; n ≥ 1 && n ≤ 10)
 ```
+
+The last of those is the global containment bound: how many children the node may have, of any allowed type. A set has the same pair. `_Element_refs_member_cardinality` checks the length of `refs`. `_Element_refs_Element_member_cardinality` checks how many of those members are `Element`. An unset side (`-1` in WebGME) is left out of the definition, and a rule with neither side is not generated.
+
+The model section defines `resolve` and proves every rule whose argument is that node's concept. `_Contained` is also built there, so a user constraint can still read the children as values. `e.parent` is `parentOf e.toFCO`.
 
 ## Where to write constraints
 

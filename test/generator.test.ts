@@ -114,9 +114,9 @@ describe('DSL Generator', () => {
       expect(leanCode).toContain('-- FCO definitions');
       expect(leanCode).toContain('-- Root definitions');
       expect(leanCode).toContain('-- Element definitions');
-      expect(leanCode.indexOf('-- Element definitions')).toBeLessThan(leanCode.indexOf('-- Root definitions'));
-      expect(leanCode.indexOf('-- Root definitions')).toBeLessThan(leanCode.indexOf('inductive _RootChild'));
-      expect(leanCode.indexOf('inductive _RootChild')).toBeLessThan(leanCode.indexOf('instance : _Contained Root Element'));
+      expect(leanCode).toContain('_containment : List _NodeId');
+      expect(leanCode).toContain('_parent : Option _NodeId');
+      expect(leanCode).not.toContain('inductive _RootChild');
       expect(leanCode).not.toContain('/-!');
       expect(leanCode).not.toContain('Not a meta');
       expect(leanCode).not.toContain('-- user defined');
@@ -134,9 +134,8 @@ describe('DSL Generator', () => {
       expect(leanCode).toContain('namespace StatechartDomain');
       expect(leanCode).toContain('-- State definitions');
       expect(leanCode).toContain('-- StateChart definitions');
-      expect(leanCode.indexOf('-- StateChart definitions')).toBeLessThan(leanCode.indexOf('inductive _StateChartChild'));
-      expect(leanCode.indexOf('inductive _StateChartChild')).toBeLessThan(leanCode.indexOf('structure StateChart'));
       expect(leanCode).toContain('structure StateChart');
+      expect(leanCode).not.toContain('inductive _StateChartChild');
       expect(leanCode).not.toContain('structure Root');
       expect(leanCode).not.toContain('ROOT');
     });
@@ -146,9 +145,10 @@ describe('DSL Generator', () => {
       const leanCode = generateLeanTypes(dsl);
 
       expect(leanCode).toContain('structure FCO where');
-      expect(leanCode).toContain('structure Root extends FCO where');
+      expect(leanCode).toContain('structure Root extends FCO deriving Repr');
       expect(leanCode).toContain('structure Element extends FCO where');
-      expect(leanCode).toContain('inductive _RootChild where');
+      expect(leanCode).toContain('_containment : List _NodeId');
+      expect(leanCode).not.toContain('inductive _RootChild');
     });
 
     it('should emit attributes, pointers, and sets as fields', () => {
@@ -279,7 +279,9 @@ describe('DSL Generator', () => {
             attributes: [{ name: 'name', type: 'string' }],
             pointers: [],
             sets: [],
-            containments: [{ childType: 'Element', min: 1, max: 2 }]
+            containments: [{ childType: 'Element', min: 1, max: 2 }],
+            childMin: 1,
+            childMax: 4
           },
           {
             name: 'Element',
@@ -290,7 +292,13 @@ describe('DSL Generator', () => {
               { name: 'target', targetTypes: ['Element'], min: 1, max: 1 }
             ],
             sets: [
-              { name: 'refs', memberTypes: ['Element'], min: 1, max: 3 }
+              {
+                name: 'refs',
+                memberTypes: ['Element'],
+                min: 1,
+                max: 3,
+                members: [{ memberType: 'Element', min: 1, max: null }]
+              }
             ],
             containments: []
           }
@@ -299,17 +307,17 @@ describe('DSL Generator', () => {
       const leanCode = generateLeanTypes(dsl);
 
       expect(dsl.mainType).toBe('StateChart');
-      expect(leanCode).toContain('def StateChart_atLeast_1_Element (m : StateChart) : Bool :=');
-      expect(leanCode).toContain('(_Contained.children (child := Element) m).length ≥ 1');
-      expect(leanCode).toContain('def StateChart_atMost_2_Element (m : StateChart) : Bool :=');
-      expect(leanCode).toContain('(_Contained.children (child := Element) m).length ≤ 2');
-      expect(leanCode).toContain('def StateChart_Element_refs_atLeast_1 (m : StateChart) : Bool :=');
-      expect(leanCode).toContain('(_Contained.children (child := Element) m).all fun node =>');
-      expect(leanCode).toContain('(node.refs).length ≥ 1');
-      expect(leanCode).toContain('def StateChart_Element_refs_atMost_3 (m : StateChart) : Bool :=');
-      expect(leanCode).toContain('(node.refs).length ≤ 3');
+      expect(leanCode).toContain('def _StateChart_child_type (m : StateChart) (resolve : _NodeId → Option _Type) : Bool :=');
+      expect(leanCode).toContain('def _StateChart_Element_child_cardinality (m : StateChart) (resolve : _NodeId → Option _Type) : Bool :=');
+      expect(leanCode).toContain('countOfType m._containment .cElement resolve');
+      expect(leanCode).toContain('def _StateChart_child_cardinality (m : StateChart) : Bool :=');
+      expect(leanCode).toContain('m._containment.length');
+      expect(leanCode).toContain('def _Element_refs_member_cardinality (m : Element) : Bool :=');
+      expect(leanCode).toContain('(m.refs).length');
+      expect(leanCode).toContain('def _Element_refs_Element_member_cardinality (m : Element) (resolve : _NodeId → Option _Type) : Bool :=');
+      expect(leanCode).not.toContain('_atLeast_');
+      expect(leanCode).not.toContain('_atMost_');
       expect(leanCode).toContain('target : _NodeId');
-      expect(leanCode).not.toContain('(m : Element)');
       expect(leanCode).not.toContain('structure Root');
       expect(leanCode).not.toContain('-- user defined');
       expect(leanCode).not.toContain('end Bounds');
@@ -319,8 +327,54 @@ describe('DSL Generator', () => {
       const dsl = generateDomainDSL(sampleMetamodel);
       const leanCode = generateLeanTypes(dsl);
 
-      expect(leanCode).toContain('instance : _Contained Root Element where');
-      expect(leanCode).toContain('children parent := parent._containment.filterMap');
+      expect(leanCode).toContain('_containment : List _NodeId');
+      expect(leanCode).toContain('def parentOf (n : FCO) : Option _NodeId :=');
+      expect(leanCode).toContain('def allowed (parent child : _Type) : Bool :=');
+      expect(leanCode).not.toContain('inductive _RootChild');
+    });
+
+    it('should treat a mixin as an instance relationship', () => {
+      const dsl = generateDomainDSL({
+        name: 'Mix',
+        rootType: 'Box',
+        nodes: [
+          {
+            name: 'Colored',
+            isAbstract: false,
+            baseType: null,
+            attributes: [],
+            pointers: [],
+            sets: [],
+            containments: [{ childType: 'Swatch', min: 1, max: null }]
+          },
+          {
+            name: 'Swatch',
+            isAbstract: false,
+            baseType: null,
+            attributes: [],
+            pointers: [],
+            sets: [],
+            containments: []
+          },
+          {
+            name: 'Box',
+            isAbstract: false,
+            baseType: null,
+            mixins: ['Colored'],
+            attributes: [],
+            pointers: [],
+            sets: [],
+            containments: []
+          }
+        ]
+      });
+      const leanCode = generateLeanTypes(dsl);
+
+      expect(leanCode).toContain('| .cBox, .cColored => true');
+      expect(leanCode).toContain('structure Box extends FCO deriving Repr');
+      expect(leanCode).not.toContain('structure Box extends Colored');
+      expect(leanCode).toContain('def _Box_Swatch_child_cardinality');
+      expect(leanCode).toContain('.cBox => isA child .cSwatch');
     });
   });
 

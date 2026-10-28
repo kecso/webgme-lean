@@ -70,6 +70,9 @@ var WebGMELeanFix = (() => {
     return {
       name: node.name,
       baseType: node.baseType,
+      mixins: node.mixins || [],
+      childMin: node.childMin ?? null,
+      childMax: node.childMax ?? null,
       attributes: node.attributes.map((attr) => {
         const { type, leanType } = mapAttributeType(attr.type);
         return {
@@ -87,7 +90,8 @@ var WebGMELeanFix = (() => {
         name: set.name,
         memberTypes: set.memberTypes,
         min: set.min,
-        max: set.max
+        max: set.max,
+        members: set.members || []
       })),
       containments: node.containments.map((cont) => ({
         childType: cont.childType,
@@ -224,6 +228,9 @@ var WebGMELeanFix = (() => {
     const toConcept = (type, base) => ({
       name: type.name,
       base,
+      mixins: type.mixins || [],
+      childMin: type.childMin ?? null,
+      childMax: type.childMax ?? null,
       attributes: type.attributes.filter((attribute) => attribute.name !== "name").map((attribute) => ({
         name: leanIdent(attribute.name),
         type: attribute.leanType
@@ -236,7 +243,8 @@ var WebGMELeanFix = (() => {
         name: leanIdent(set.name),
         type: `List ${targetTypeOf(type.name, set.memberTypes)}`,
         min: set.min,
-        max: set.max
+        max: set.max,
+        members: set.members || []
       })),
       containments: type.containments
     });
@@ -244,6 +252,9 @@ var WebGMELeanFix = (() => {
     const fco = fcoNode ? toConcept(fcoNode, null) : {
       name: "FCO",
       base: null,
+      mixins: [],
+      childMin: null,
+      childMax: null,
       attributes: [],
       pointers: [],
       sets: [],
@@ -294,6 +305,8 @@ var WebGMELeanFix = (() => {
         fields.push(`  _id : ${techType("NodeId")}`);
         fields.push(`  _type : ${techType("Type")}`);
         fields.push("  name : String");
+        fields.push(`  _containment : List ${techType("NodeId")}`);
+        fields.push(`  _parent : Option ${techType("NodeId")}`);
       }
       for (const attribute of concept.attributes) {
         fields.push(`  ${attribute.name} : ${attribute.type}`);
@@ -303,9 +316,6 @@ var WebGMELeanFix = (() => {
       }
       for (const set of concept.sets) {
         fields.push(`  ${set.name} : ${set.type}`);
-      }
-      if (concept.containments.length > 0) {
-        fields.push(`  _containment : List ${techType(`${owner}Child`)}`);
       }
       if (parent && fields.length === 0) {
         lines.push(`structure ${owner} extends ${parent} deriving Repr`);
@@ -328,81 +338,246 @@ var WebGMELeanFix = (() => {
         lines.push("");
       }
     };
-    const emitContained = (concept) => {
-      if (concept.containments.length === 0) {
-        return;
-      }
-      const owner = leanIdent(concept.name);
-      for (const child of concept.containments) {
-        const childName = leanIdent(child.childType);
-        const ctor = ctorIdent(child.childType);
-        lines.push(`instance : ${techType("Contained")} ${owner} ${childName} where`);
-        lines.push("  children parent := parent._containment.filterMap fun");
-        lines.push(`    | .${ctor} node => some node`);
-        if (concept.containments.length > 1) {
-          lines.push("    | _ => none");
+    const byName = /* @__PURE__ */ new Map();
+    for (const concept of [fco, ...concepts]) {
+      byName.set(concept.name, concept);
+    }
+    const related = (concept, mixins) => {
+      const found = [];
+      const queue = [concept];
+      const guard = /* @__PURE__ */ new Set();
+      while (queue.length > 0) {
+        const current = queue.shift();
+        if (guard.has(current.name)) {
+          continue;
         }
-        lines.push("");
+        guard.add(current.name);
+        found.push(current);
+        if (current.base) {
+          const base = byName.get(current.base);
+          if (base) {
+            queue.push(base);
+          }
+        }
+        if (mixins) {
+          for (const mixinName of current.mixins) {
+            const mixin = byName.get(mixinName);
+            if (mixin) {
+              queue.push(mixin);
+            }
+          }
+        }
       }
+      return found;
     };
-    const mainName = leanIdent(dsl.mainType || namespace);
-    const mainConcept = [fco, ...concepts].find((concept) => leanIdent(concept.name) === mainName);
-    const directChildren = new Set(
-      (mainConcept ? mainConcept.containments : []).map((child) => leanIdent(child.childType))
-    );
+    const effectiveContainments = (concept) => {
+      const seen = /* @__PURE__ */ new Set();
+      const rules = [];
+      for (const current of related(concept, true)) {
+        for (const rule of current.containments) {
+          if (!rule.childType || seen.has(rule.childType)) {
+            continue;
+          }
+          seen.add(rule.childType);
+          rules.push(rule);
+        }
+      }
+      return rules;
+    };
+    const typeClosure = (name) => {
+      const start = byName.get(name);
+      return start ? related(start, true).map((concept) => concept.name) : [name];
+    };
+    const effectiveSets = (concept) => {
+      const seen = /* @__PURE__ */ new Set();
+      const sets = [];
+      for (const current of related(concept, false)) {
+        for (const set of current.sets) {
+          if (seen.has(set.name)) {
+            continue;
+          }
+          seen.add(set.name);
+          sets.push(set);
+        }
+      }
+      return sets;
+    };
+    const childBounds = (concept) => {
+      let min = null;
+      let max = null;
+      for (const current of related(concept, true)) {
+        if (min === null && current.childMin != null) {
+          min = current.childMin;
+        }
+        if (max === null && current.childMax != null) {
+          max = current.childMax;
+        }
+      }
+      return { min, max };
+    };
+    const span = (min, max) => {
+      const low = min != null && min > 0 ? String(min) : "*";
+      const high = max != null ? String(max) : "*";
+      return `${low}..${high}`;
+    };
+    const comparison = (countExpr, min, max) => {
+      const low = min != null && min > 0;
+      const high = max != null;
+      if (low && high) {
+        return `(let n := ${countExpr}; n \u2265 ${min} && n \u2264 ${max})`;
+      }
+      if (low) {
+        return `${countExpr} \u2265 ${min}`;
+      }
+      if (high) {
+        return `${countExpr} \u2264 ${max}`;
+      }
+      return null;
+    };
+    const emitRule = (name, owner, needsResolve, comment, body) => {
+      const resolveArg = needsResolve ? ` (resolve : ${techType("NodeId")} \u2192 Option ${techType("Type")})` : "";
+      lines.push(`-- ${comment}`);
+      lines.push(`def ${name} (m : ${owner})${resolveArg} : Bool :=`);
+      lines.push(`  ${body}`);
+      lines.push("");
+    };
+    const memberCount = (set, memberType) => {
+      const element = set.type.replace(/^List /, "");
+      const want = `.${ctorIdent(memberType)}`;
+      if (element === techType("NodeId")) {
+        return {
+          expr: `countOfType m.${set.name} ${want} resolve`,
+          needsResolve: true
+        };
+      }
+      if (element.startsWith("_") && element.endsWith("Ref")) {
+        return {
+          expr: `countWhere m.${set.name} ${element}.typeOf ${want}`,
+          needsResolve: false
+        };
+      }
+      return {
+        expr: `countWhere m.${set.name} (fun item => item._type) ${want}`,
+        needsResolve: false
+      };
+    };
     const emitBounds = (concept) => {
       const owner = leanIdent(concept.name);
-      if (owner !== mainName && !directChildren.has(owner)) {
-        return;
-      }
-      const defOwner = owner === mainName ? mainName : `${mainName}_${owner}`;
-      const emitDef = (name, body) => {
-        lines.push(`def ${name} (m : ${mainName}) : Bool :=`);
-        for (const line of body) {
-          lines.push(`  ${line}`);
-        }
-        lines.push("");
-      };
-      for (const child of concept.containments) {
+      const fcoView = owner === "FCO" ? "m" : "m.toFCO";
+      emitRule(
+        `_${owner}_child_type`,
+        owner,
+        true,
+        `Every child of ${owner} has a type ${owner} may contain.`,
+        `childrenAllowed ${fcoView} resolve`
+      );
+      for (const child of effectiveContainments(concept)) {
         const childName = leanIdent(child.childType);
-        const lengthOf = owner === mainName ? `(_Contained.children (child := ${childName}) m).length` : `(_Contained.children (child := ${childName}) node).length`;
-        const body = (check) => owner === mainName ? [check] : [`(_Contained.children (child := ${owner}) m).all fun node =>`, `  ${check}`];
-        if (child.min > 0) {
-          emitDef(`${defOwner}_atLeast_${child.min}_${childName}`, body(`${lengthOf} \u2265 ${child.min}`));
+        const body = comparison(
+          `countOfType m._containment .${ctorIdent(child.childType)} resolve`,
+          child.min,
+          child.max
+        );
+        if (!body) {
+          continue;
         }
-        if (child.max !== null) {
-          emitDef(`${defOwner}_atMost_${child.max}_${childName}`, body(`${lengthOf} \u2264 ${child.max}`));
-        }
+        emitRule(
+          `_${owner}_${childName}_child_cardinality`,
+          owner,
+          true,
+          `${owner} contains ${span(child.min, child.max)} ${childName}.`,
+          body
+        );
       }
-      for (const set of concept.sets) {
-        const lengthOf = owner === mainName ? `(m.${set.name}).length` : `(node.${set.name}).length`;
-        const setOwner = owner === mainName ? `${mainName}_${set.name}` : `${mainName}_${owner}_${set.name}`;
-        const body = (check) => owner === mainName ? [check] : [`(_Contained.children (child := ${owner}) m).all fun node =>`, `  ${check}`];
-        if ((set.min ?? 0) > 0) {
-          emitDef(`${setOwner}_atLeast_${set.min}`, body(`${lengthOf} \u2265 ${set.min}`));
+      const totals = childBounds(concept);
+      const totalBody = comparison("m._containment.length", totals.min, totals.max);
+      if (totalBody) {
+        emitRule(
+          `_${owner}_child_cardinality`,
+          owner,
+          false,
+          `${owner} contains ${span(totals.min, totals.max)} children.`,
+          totalBody
+        );
+      }
+      for (const set of effectiveSets(concept)) {
+        const total = comparison(`(m.${set.name}).length`, set.min ?? null, set.max ?? null);
+        if (total) {
+          emitRule(
+            `_${owner}_${set.name}_member_cardinality`,
+            owner,
+            false,
+            `${set.name} of ${owner} has ${span(set.min ?? null, set.max ?? null)} members.`,
+            total
+          );
         }
-        if (set.max != null) {
-          emitDef(`${setOwner}_atMost_${set.max}`, body(`${lengthOf} \u2264 ${set.max}`));
+        for (const member of set.members || []) {
+          const counted = memberCount(set, member.memberType);
+          const body = comparison(counted.expr, member.min, member.max);
+          if (!body) {
+            continue;
+          }
+          const memberName = leanIdent(member.memberType);
+          emitRule(
+            `_${owner}_${set.name}_${memberName}_member_cardinality`,
+            owner,
+            counted.needsResolve,
+            `${set.name} of ${owner} has ${span(member.min, member.max)} ${memberName} members.`,
+            body
+          );
         }
       }
     };
     const emitConcept = (concept) => {
       const typeName = leanIdent(concept.name);
       lines.push(`-- ${typeName} definitions`);
-      if (concept.containments.length > 0 && !emitted.has(techType(`${typeName}Child`))) {
-        const childType = techType(`${typeName}Child`);
-        lines.push(`inductive ${childType} where`);
-        for (const child of concept.containments) {
-          lines.push(`  | ${ctorIdent(child.childType)} : ${leanIdent(child.childType)} \u2192 ${childType}`);
-        }
-        lines.push("  deriving Repr");
-        lines.push("");
-        emitted.add(childType);
-      }
       emitStructure(concept);
-      emitContained(concept);
-      emitBounds(concept);
       emitted.add(typeName);
+    };
+    const emitMetaRules = () => {
+      const allConcepts = [fco, ...concepts];
+      lines.push("def isA (child parent : _Type) : Bool :=");
+      lines.push("  match child, parent with");
+      for (const concept of allConcepts) {
+        for (const ancestor of typeClosure(concept.name)) {
+          lines.push(`  | .${ctorIdent(concept.name)}, .${ctorIdent(ancestor)} => true`);
+        }
+      }
+      lines.push("  | _, _ => false");
+      lines.push("");
+      lines.push("def allowed (parent child : _Type) : Bool :=");
+      lines.push("  match parent with");
+      for (const concept of allConcepts) {
+        const rules = effectiveContainments(concept);
+        if (rules.length === 0) {
+          continue;
+        }
+        const checks = rules.map((rule) => `isA child .${ctorIdent(rule.childType)}`);
+        lines.push(`  | .${ctorIdent(concept.name)} => ${checks.join(" || ")}`);
+      }
+      lines.push("  | _ => false");
+      lines.push("");
+      lines.push("def countOfType (ids : List _NodeId) (want : _Type) (resolve : _NodeId \u2192 Option _Type) : Nat :=");
+      lines.push("  ids.foldl (fun acc id =>");
+      lines.push("    match resolve id with");
+      lines.push("    | some t => if isA t want then acc + 1 else acc");
+      lines.push("    | none => acc) 0");
+      lines.push("");
+      lines.push("def countWhere {\u03B1 : Type} (items : List \u03B1) (typeOf : \u03B1 \u2192 _Type) (want : _Type) : Nat :=");
+      lines.push("  items.foldl (fun acc item => if isA (typeOf item) want then acc + 1 else acc) 0");
+      lines.push("");
+      lines.push("def childrenAllowed (n : FCO) (resolve : _NodeId \u2192 Option _Type) : Bool :=");
+      lines.push("  n._containment.all fun id =>");
+      lines.push("    match resolve id with");
+      lines.push("    | some t => allowed n._type t");
+      lines.push("    | none => false");
+      lines.push("");
+      lines.push("def parentOf (n : FCO) : Option _NodeId :=");
+      lines.push("  n._parent");
+      lines.push("");
+      for (const concept of allConcepts) {
+        emitBounds(concept);
+      }
     };
     lines.push(`inductive ${techType("Type")} where`);
     for (const conceptName of ["FCO", ...ordered.map((concept) => concept.name)]) {
@@ -431,12 +606,6 @@ var WebGMELeanFix = (() => {
         if (blocked || needsRef) {
           continue;
         }
-        if (concept.containments.length > 0 && !emitted.has(techType(`${typeName}Child`))) {
-          const childrenReady = concept.containments.every((child) => structReady(leanIdent(child.childType)) || leanIdent(child.childType) === typeName);
-          if (!childrenReady) {
-            continue;
-          }
-        }
         emitConcept(concept);
         waiting.delete(typeName);
         progressed = true;
@@ -460,6 +629,11 @@ var WebGMELeanFix = (() => {
             lines.push(`  | .${ctorIdent(member)} node => node._id`);
           }
           lines.push("");
+          lines.push(`def ${refType}.typeOf : ${refType} \u2192 ${techType("Type")}`);
+          for (const member of members) {
+            lines.push(`  | .${ctorIdent(member)} node => node._type`);
+          }
+          lines.push("");
           lines.push(`instance : BEq ${refType} where`);
           lines.push("  beq a b := a._id == b._id");
           lines.push("");
@@ -474,6 +648,7 @@ var WebGMELeanFix = (() => {
         break;
       }
     }
+    emitMetaRules();
     return lines.join("\n");
   }
   return __toCommonJS(leanFix_exports);

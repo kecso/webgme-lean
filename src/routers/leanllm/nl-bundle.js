@@ -53,8 +53,9 @@ The constraint language uses first-order logic with quantifiers (forall, exists)
 When translating natural language to constraints:
 1. Identify the types and relationships mentioned
 2. Determine if it's a universal (forall) or existential (exists) statement
-3. Express the constraint using the appropriate syntax
-4. Use descriptive constraint names
+3. Introduce every quantifier body with a colon. where is only a filter before that colon
+4. Put parentheses around a quantifier that is used as an expression, including after not
+5. Use descriptive constraint names
 
 When explaining constraints in natural language:
 1. Describe what the constraint enforces in plain English
@@ -77,10 +78,24 @@ constraint <ConstraintName> [severity]
 \`\`\`
 
 ### Quantifiers
+The colon starts the body. where is a filter and always comes before the colon. Do not write where in place of the colon.
+
 \`\`\`
-forall <var> in <Type> [where <condition>]: <body>
-exists <var> in <Type> [where <condition>]: <body>
+forall <var> in <Type>: <body>
+exists <var> in <Type>: <body>
+forall <var> in <Type> where <filter>: <body>
+exists <var> in <Type> where <filter>: <body>
 \`\`\`
+
+not, and, or, and implies apply to expressions. A quantifier used as an expression is written in parentheses.
+
+\`\`\`
+forall init in InitState:
+  not (exists trans in Transition:
+    trans->dst == init)
+\`\`\`
+
+Do not write \`not exists\` or \`forall init in InitState where\` when the next part is the body.
 
 ### Operators
 - Logical: \`and\`, \`or\`, \`not\`, \`implies\`
@@ -10441,6 +10456,44 @@ Use simple, direct language and concrete examples.`;
 };
 
 // src/nl/nl-translator.ts
+function normalizeGeneratedConstraint(source) {
+  const lines = String(source || "").split("\n").map((line) => line.replace(
+    /^(\s*(?:not\s+)?(?:forall|exists)\s+[A-Za-z_]\w*\s+in\s+[A-Za-z_]\w*)\s+where\s*$/,
+    "$1:"
+  ).replace(
+    /\b((?:forall|exists)\s+[A-Za-z_]\w*\s+in\s+[A-Za-z_]\w*)\s+where\s+(?=not\b|forall\b|exists\b)/,
+    "$1: "
+  ));
+  return wrapNegatedQuantifiers(lines);
+}
+function wrapNegatedQuantifiers(lines) {
+  const next = lines.slice();
+  for (let i = 0; i < next.length; i += 1) {
+    const match = /^(.*\bnot\s+)(exists|forall)\b(.*)$/.exec(next[i]);
+    if (!match) {
+      continue;
+    }
+    next[i] = match[1] + "(" + match[2] + match[3];
+    const base = leadingIndent(next[i]);
+    let end = i;
+    for (let j = i + 1; j < next.length; j += 1) {
+      if (next[j].trim() === "") {
+        end = j;
+        continue;
+      }
+      if (leadingIndent(next[j]) <= base) {
+        break;
+      }
+      end = j;
+    }
+    next[end] = next[end] + ")";
+  }
+  return next.join("\n");
+}
+function leadingIndent(line) {
+  const match = /^[ \t]*/.exec(line);
+  return match ? match[0].replace(/\t/g, "  ").length : 0;
+}
 var NLConstraintTranslator = class {
   domainDSL;
   llmProvider;
@@ -10470,6 +10523,9 @@ var NLConstraintTranslator = class {
     try {
       const rawOutput = await this.llmProvider.complete(prompt, systemPrompt);
       const parsed = this.parseTranslationResponse(rawOutput);
+      if (parsed.constraint) {
+        parsed.constraint = normalizeGeneratedConstraint(parsed.constraint);
+      }
       if (!parsed.constraint) {
         return {
           success: false,
@@ -10687,6 +10743,19 @@ Your output MUST be valid constraint syntax that can be parsed. Always respond w
 2. A comment describing what it does
 3. The constraint expression using forall/exists quantifiers
 
+A quantifier body always starts with a colon:
+  forall init in InitState:
+    true
+where is only a filter, and it comes before the colon:
+  forall e2 in State where e1.name == e2.name:
+    e1 == e2
+Never write where where the colon belongs.
+
+not, and, or, and implies take expressions. Put a quantifier in parentheses when it is an expression:
+  forall init in InitState:
+    not (exists trans in Transition:
+      trans->dst == init)
+
 Format your response as:
 \`\`\`constraint
 constraint <Name> [severity]
@@ -10718,6 +10787,8 @@ Remember:
 - Choose an appropriate severity level (error for must-have, warning for should-have, info for nice-to-have)
 - Use descriptive constraint names in PascalCase
 - Add a comment explaining the constraint
+- Start each quantifier body with a colon. Use where only to filter, before the colon
+- Wrap a quantifier in parentheses when it is an expression, as in not (exists t in Transition: t->dst == init)
 
 Respond with the constraint code block followed by a brief explanation.`;
     return prompt;

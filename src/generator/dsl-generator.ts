@@ -7,7 +7,7 @@
  * 3. Validation rules based on metamodel constraints
  */
 
-import { Metamodel, MetaNode, MetaAttribute, MetaPointer, MetaSet } from '../common/types';
+import { Metamodel, MetaNode, MetaAttribute, MetaPointer, MetaSet, MetaSetMember } from '../common/types';
 
 export interface DomainDSL {
   name?: string;
@@ -26,6 +26,9 @@ export interface TypeDefinition {
   sets: SetDef[];
   containments: ContainmentDef[];
   baseType: string | null;
+  mixins: string[];
+  childMin: number | null;
+  childMax: number | null;
 }
 
 export interface AttributeDef {
@@ -45,6 +48,7 @@ export interface SetDef {
   memberTypes: string[];
   min: number;
   max: number | null;
+  members: MetaSetMember[];
 }
 
 export interface ContainmentDef {
@@ -110,6 +114,9 @@ function generateTypeDefinition(node: MetaNode): TypeDefinition {
   return {
     name: node.name,
     baseType: node.baseType,
+    mixins: node.mixins || [],
+    childMin: node.childMin ?? null,
+    childMax: node.childMax ?? null,
     attributes: node.attributes.map(attr => {
       const { type, leanType } = mapAttributeType(attr.type);
       return {
@@ -127,7 +134,8 @@ function generateTypeDefinition(node: MetaNode): TypeDefinition {
       name: set.name,
       memberTypes: set.memberTypes,
       min: set.min,
-      max: set.max
+      max: set.max,
+      members: set.members || []
     })),
     containments: node.containments.map(cont => ({
       childType: cont.childType,
@@ -232,11 +240,15 @@ interface LeanField {
   type: string;
   min?: number;
   max?: number | null;
+  members?: MetaSetMember[];
 }
 
 interface LeanConcept {
   name: string;
   base: string | null;
+  mixins: string[];
+  childMin: number | null;
+  childMax: number | null;
   attributes: LeanField[];
   pointers: LeanField[];
   sets: LeanField[];
@@ -248,9 +260,11 @@ interface LeanConcept {
  *
  * The text is the program only. Each concept is a section opened by `-- Name definitions`.
  * The encoding rules live in docs/lean-encoding.md.
- * Containment is a meta rule: each concept declares the children it may hold.
- * That rule is `_OwnerChild` plus a `_Contained` instance per child type.
- * Bounds a `List` does not enforce are defs of the main type.
+ * Containment is one `_containment : List _NodeId` on FCO. Every concept inherits that
+ * list through `extends`. `_parent` is the id of the instance's parent, or `none`.
+ * `isA` is the base chain plus mixins. A meta rule is a def named for the concept and
+ * the rule, such as `_Compound_Port_child_cardinality`. The model section proves each
+ * one. `resolve` is defined there.
  * The editor places user constraints after this text.
  */
 export function generateLeanTypes(dsl: DomainDSL): string {
@@ -280,6 +294,9 @@ export function generateLeanTypes(dsl: DomainDSL): string {
   const toConcept = (type: TypeDefinition, base: string | null): LeanConcept => ({
     name: type.name,
     base,
+    mixins: type.mixins || [],
+    childMin: type.childMin ?? null,
+    childMax: type.childMax ?? null,
     attributes: type.attributes
       .filter(attribute => attribute.name !== 'name')
       .map(attribute => ({
@@ -296,7 +313,8 @@ export function generateLeanTypes(dsl: DomainDSL): string {
       name: leanIdent(set.name),
       type: `List ${targetTypeOf(type.name, set.memberTypes)}`,
       min: set.min,
-      max: set.max
+      max: set.max,
+      members: set.members || []
     })),
     containments: type.containments
   });
@@ -305,6 +323,9 @@ export function generateLeanTypes(dsl: DomainDSL): string {
   const fco = fcoNode ? toConcept(fcoNode, null) : {
     name: 'FCO',
     base: null,
+    mixins: [],
+    childMin: null,
+    childMax: null,
     attributes: [],
     pointers: [],
     sets: [],
@@ -363,6 +384,8 @@ export function generateLeanTypes(dsl: DomainDSL): string {
       fields.push(`  _id : ${techType('NodeId')}`);
       fields.push(`  _type : ${techType('Type')}`);
       fields.push('  name : String');
+      fields.push(`  _containment : List ${techType('NodeId')}`);
+      fields.push(`  _parent : Option ${techType('NodeId')}`);
     }
     for (const attribute of concept.attributes) {
       fields.push(`  ${attribute.name} : ${attribute.type}`);
@@ -372,9 +395,6 @@ export function generateLeanTypes(dsl: DomainDSL): string {
     }
     for (const set of concept.sets) {
       fields.push(`  ${set.name} : ${set.type}`);
-    }
-    if (concept.containments.length > 0) {
-      fields.push(`  _containment : List ${techType(`${owner}Child`)}`);
     }
     if (parent && fields.length === 0) {
       lines.push(`structure ${owner} extends ${parent} deriving Repr`);
@@ -398,70 +418,197 @@ export function generateLeanTypes(dsl: DomainDSL): string {
     }
   };
 
-  const emitContained = (concept: LeanConcept) => {
-    if (concept.containments.length === 0) {
-      return;
-    }
-    const owner = leanIdent(concept.name);
-    for (const child of concept.containments) {
-      const childName = leanIdent(child.childType);
-      const ctor = ctorIdent(child.childType);
-      lines.push(`instance : ${techType('Contained')} ${owner} ${childName} where`);
-      lines.push('  children parent := parent._containment.filterMap fun');
-      lines.push(`    | .${ctor} node => some node`);
-      if (concept.containments.length > 1) {
-        lines.push('    | _ => none');
+  const byName = new Map<string, LeanConcept>();
+  for (const concept of [fco, ...concepts]) {
+    byName.set(concept.name, concept);
+  }
+  const related = (concept: LeanConcept, mixins: boolean): LeanConcept[] => {
+    const found: LeanConcept[] = [];
+    const queue: LeanConcept[] = [concept];
+    const guard = new Set<string>();
+    while (queue.length > 0) {
+      const current = queue.shift() as LeanConcept;
+      if (guard.has(current.name)) {
+        continue;
       }
-      lines.push('');
+      guard.add(current.name);
+      found.push(current);
+      if (current.base) {
+        const base = byName.get(current.base);
+        if (base) {
+          queue.push(base);
+        }
+      }
+      if (mixins) {
+        for (const mixinName of current.mixins) {
+          const mixin = byName.get(mixinName);
+          if (mixin) {
+            queue.push(mixin);
+          }
+        }
+      }
     }
+    return found;
+  };
+  const effectiveContainments = (concept: LeanConcept): ContainmentDef[] => {
+    const seen = new Set<string>();
+    const rules: ContainmentDef[] = [];
+    for (const current of related(concept, true)) {
+      for (const rule of current.containments) {
+        if (!rule.childType || seen.has(rule.childType)) {
+          continue;
+        }
+        seen.add(rule.childType);
+        rules.push(rule);
+      }
+    }
+    return rules;
+  };
+  const typeClosure = (name: string): string[] => {
+    const start = byName.get(name);
+    return start ? related(start, true).map(concept => concept.name) : [name];
+  };
+  const effectiveSets = (concept: LeanConcept): LeanField[] => {
+    const seen = new Set<string>();
+    const sets: LeanField[] = [];
+    for (const current of related(concept, false)) {
+      for (const set of current.sets) {
+        if (seen.has(set.name)) {
+          continue;
+        }
+        seen.add(set.name);
+        sets.push(set);
+      }
+    }
+    return sets;
+  };
+  const childBounds = (concept: LeanConcept): { min: number | null; max: number | null } => {
+    let min: number | null = null;
+    let max: number | null = null;
+    for (const current of related(concept, true)) {
+      if (min === null && current.childMin != null) {
+        min = current.childMin;
+      }
+      if (max === null && current.childMax != null) {
+        max = current.childMax;
+      }
+    }
+    return { min, max };
   };
 
-  const mainName = leanIdent(dsl.mainType || namespace);
-  const mainConcept = [fco, ...concepts].find(concept => leanIdent(concept.name) === mainName);
-  const directChildren = new Set(
-    (mainConcept ? mainConcept.containments : []).map(child => leanIdent(child.childType))
-  );
+  const span = (min: number | null, max: number | null): string => {
+    const low = min != null && min > 0 ? String(min) : '*';
+    const high = max != null ? String(max) : '*';
+    return `${low}..${high}`;
+  };
+  const comparison = (countExpr: string, min: number | null, max: number | null): string | null => {
+    const low = min != null && min > 0;
+    const high = max != null;
+    if (low && high) {
+      return `(let n := ${countExpr}; n ≥ ${min} && n ≤ ${max})`;
+    }
+    if (low) {
+      return `${countExpr} ≥ ${min}`;
+    }
+    if (high) {
+      return `${countExpr} ≤ ${max}`;
+    }
+    return null;
+  };
+  const emitRule = (name: string, owner: string, needsResolve: boolean, comment: string, body: string) => {
+    const resolveArg = needsResolve
+      ? ` (resolve : ${techType('NodeId')} → Option ${techType('Type')})`
+      : '';
+    lines.push(`-- ${comment}`);
+    lines.push(`def ${name} (m : ${owner})${resolveArg} : Bool :=`);
+    lines.push(`  ${body}`);
+    lines.push('');
+  };
+  const memberCount = (set: LeanField, memberType: string): { expr: string; needsResolve: boolean } => {
+    const element = set.type.replace(/^List /, '');
+    const want = `.${ctorIdent(memberType)}`;
+    if (element === techType('NodeId')) {
+      return {
+        expr: `countOfType m.${set.name} ${want} resolve`,
+        needsResolve: true
+      };
+    }
+    if (element.startsWith('_') && element.endsWith('Ref')) {
+      return {
+        expr: `countWhere m.${set.name} ${element}.typeOf ${want}`,
+        needsResolve: false
+      };
+    }
+    return {
+      expr: `countWhere m.${set.name} (fun item => item._type) ${want}`,
+      needsResolve: false
+    };
+  };
+
   const emitBounds = (concept: LeanConcept) => {
     const owner = leanIdent(concept.name);
-    if (owner !== mainName && !directChildren.has(owner)) {
-      return;
-    }
-    const defOwner = owner === mainName ? mainName : `${mainName}_${owner}`;
-    const emitDef = (name: string, body: string[]) => {
-      lines.push(`def ${name} (m : ${mainName}) : Bool :=`);
-      for (const line of body) {
-        lines.push(`  ${line}`);
-      }
-      lines.push('');
-    };
-    for (const child of concept.containments) {
+    const fcoView = owner === 'FCO' ? 'm' : 'm.toFCO';
+    emitRule(
+      `_${owner}_child_type`,
+      owner,
+      true,
+      `Every child of ${owner} has a type ${owner} may contain.`,
+      `childrenAllowed ${fcoView} resolve`
+    );
+    for (const child of effectiveContainments(concept)) {
       const childName = leanIdent(child.childType);
-      const lengthOf = owner === mainName
-        ? `(_Contained.children (child := ${childName}) m).length`
-        : `(_Contained.children (child := ${childName}) node).length`;
-      const body = (check: string) => owner === mainName
-        ? [check]
-        : [`(_Contained.children (child := ${owner}) m).all fun node =>`, `  ${check}`];
-      if (child.min > 0) {
-        emitDef(`${defOwner}_atLeast_${child.min}_${childName}`, body(`${lengthOf} ≥ ${child.min}`));
+      const body = comparison(
+        `countOfType m._containment .${ctorIdent(child.childType)} resolve`,
+        child.min,
+        child.max
+      );
+      if (!body) {
+        continue;
       }
-      if (child.max !== null) {
-        emitDef(`${defOwner}_atMost_${child.max}_${childName}`, body(`${lengthOf} ≤ ${child.max}`));
-      }
+      emitRule(
+        `_${owner}_${childName}_child_cardinality`,
+        owner,
+        true,
+        `${owner} contains ${span(child.min, child.max)} ${childName}.`,
+        body
+      );
     }
-    for (const set of concept.sets) {
-      const lengthOf = owner === mainName
-        ? `(m.${set.name}).length`
-        : `(node.${set.name}).length`;
-      const setOwner = owner === mainName ? `${mainName}_${set.name}` : `${mainName}_${owner}_${set.name}`;
-      const body = (check: string) => owner === mainName
-        ? [check]
-        : [`(_Contained.children (child := ${owner}) m).all fun node =>`, `  ${check}`];
-      if ((set.min ?? 0) > 0) {
-        emitDef(`${setOwner}_atLeast_${set.min}`, body(`${lengthOf} ≥ ${set.min}`));
+    const totals = childBounds(concept);
+    const totalBody = comparison('m._containment.length', totals.min, totals.max);
+    if (totalBody) {
+      emitRule(
+        `_${owner}_child_cardinality`,
+        owner,
+        false,
+        `${owner} contains ${span(totals.min, totals.max)} children.`,
+        totalBody
+      );
+    }
+    for (const set of effectiveSets(concept)) {
+      const total = comparison(`(m.${set.name}).length`, set.min ?? null, set.max ?? null);
+      if (total) {
+        emitRule(
+          `_${owner}_${set.name}_member_cardinality`,
+          owner,
+          false,
+          `${set.name} of ${owner} has ${span(set.min ?? null, set.max ?? null)} members.`,
+          total
+        );
       }
-      if (set.max != null) {
-        emitDef(`${setOwner}_atMost_${set.max}`, body(`${lengthOf} ≤ ${set.max}`));
+      for (const member of set.members || []) {
+        const counted = memberCount(set, member.memberType);
+        const body = comparison(counted.expr, member.min, member.max);
+        if (!body) {
+          continue;
+        }
+        const memberName = leanIdent(member.memberType);
+        emitRule(
+          `_${owner}_${set.name}_${memberName}_member_cardinality`,
+          owner,
+          counted.needsResolve,
+          `${set.name} of ${owner} has ${span(member.min, member.max)} ${memberName} members.`,
+          body
+        );
       }
     }
   };
@@ -469,20 +616,54 @@ export function generateLeanTypes(dsl: DomainDSL): string {
   const emitConcept = (concept: LeanConcept) => {
     const typeName = leanIdent(concept.name);
     lines.push(`-- ${typeName} definitions`);
-    if (concept.containments.length > 0 && !emitted.has(techType(`${typeName}Child`))) {
-      const childType = techType(`${typeName}Child`);
-      lines.push(`inductive ${childType} where`);
-      for (const child of concept.containments) {
-        lines.push(`  | ${ctorIdent(child.childType)} : ${leanIdent(child.childType)} → ${childType}`);
-      }
-      lines.push('  deriving Repr');
-      lines.push('');
-      emitted.add(childType);
-    }
     emitStructure(concept);
-    emitContained(concept);
-    emitBounds(concept);
     emitted.add(typeName);
+  };
+
+  const emitMetaRules = () => {
+    const allConcepts = [fco, ...concepts];
+    lines.push('def isA (child parent : _Type) : Bool :=');
+    lines.push('  match child, parent with');
+    for (const concept of allConcepts) {
+      for (const ancestor of typeClosure(concept.name)) {
+        lines.push(`  | .${ctorIdent(concept.name)}, .${ctorIdent(ancestor)} => true`);
+      }
+    }
+    lines.push('  | _, _ => false');
+    lines.push('');
+    lines.push('def allowed (parent child : _Type) : Bool :=');
+    lines.push('  match parent with');
+    for (const concept of allConcepts) {
+      const rules = effectiveContainments(concept);
+      if (rules.length === 0) {
+        continue;
+      }
+      const checks = rules.map(rule => `isA child .${ctorIdent(rule.childType)}`);
+      lines.push(`  | .${ctorIdent(concept.name)} => ${checks.join(' || ')}`);
+    }
+    lines.push('  | _ => false');
+    lines.push('');
+    lines.push('def countOfType (ids : List _NodeId) (want : _Type) (resolve : _NodeId → Option _Type) : Nat :=');
+    lines.push('  ids.foldl (fun acc id =>');
+    lines.push('    match resolve id with');
+    lines.push('    | some t => if isA t want then acc + 1 else acc');
+    lines.push('    | none => acc) 0');
+    lines.push('');
+    lines.push('def countWhere {α : Type} (items : List α) (typeOf : α → _Type) (want : _Type) : Nat :=');
+    lines.push('  items.foldl (fun acc item => if isA (typeOf item) want then acc + 1 else acc) 0');
+    lines.push('');
+    lines.push('def childrenAllowed (n : FCO) (resolve : _NodeId → Option _Type) : Bool :=');
+    lines.push('  n._containment.all fun id =>');
+    lines.push('    match resolve id with');
+    lines.push('    | some t => allowed n._type t');
+    lines.push('    | none => false');
+    lines.push('');
+    lines.push('def parentOf (n : FCO) : Option _NodeId :=');
+    lines.push('  n._parent');
+    lines.push('');
+    for (const concept of allConcepts) {
+      emitBounds(concept);
+    }
   };
 
   lines.push(`inductive ${techType('Type')} where`);
@@ -515,12 +696,6 @@ export function generateLeanTypes(dsl: DomainDSL): string {
       if (blocked || needsRef) {
         continue;
       }
-      if (concept.containments.length > 0 && !emitted.has(techType(`${typeName}Child`))) {
-        const childrenReady = concept.containments.every(child => structReady(leanIdent(child.childType)) || leanIdent(child.childType) === typeName);
-        if (!childrenReady) {
-          continue;
-        }
-      }
       emitConcept(concept);
       waiting.delete(typeName);
       progressed = true;
@@ -544,6 +719,11 @@ export function generateLeanTypes(dsl: DomainDSL): string {
           lines.push(`  | .${ctorIdent(member)} node => node._id`);
         }
         lines.push('');
+        lines.push(`def ${refType}.typeOf : ${refType} → ${techType('Type')}`);
+        for (const member of members) {
+          lines.push(`  | .${ctorIdent(member)} node => node._type`);
+        }
+        lines.push('');
         lines.push(`instance : BEq ${refType} where`);
         lines.push('  beq a b := a._id == b._id');
         lines.push('');
@@ -559,6 +739,7 @@ export function generateLeanTypes(dsl: DomainDSL): string {
     }
   }
 
+  emitMetaRules();
   return lines.join('\n');
 }
 

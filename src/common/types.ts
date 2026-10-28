@@ -16,11 +16,20 @@ export interface MetaPointer {
   max: number | null;
 }
 
+export interface MetaSetMember {
+  memberType: string;
+  min: number;
+  max: number | null;
+}
+
 export interface MetaSet {
   name: string;
   memberTypes: string[];
+  /** How many members the set may hold, of any allowed type. */
   min: number;
   max: number | null;
+  /** How many members of one type the set may hold. */
+  members?: MetaSetMember[];
 }
 
 export interface MetaContainment {
@@ -32,17 +41,17 @@ export interface MetaContainment {
 /**
  * Represents a node type in the WebGME metamodel.
  * 
- * TODO: Missing WebGME meta language features:
- * - mixins: string[] - Multiple inheritance mechanism where mixins provide rules only
- *   (like interfaces in other languages). Base provides rules + data + structure,
- *   while mixins only provide rules that instances must implement.
- * - Global containment cardinality rules (cross-cutting containment constraints)
+ * A mixin contributes rules and answers `isA`. It does not add a Lean parent.
+ * `childMin` and `childMax` bound how many children a node may have, of any allowed type.
  */
 export interface MetaNode {
   name: string;
   isAbstract: boolean;
   baseType: string | null;
-  /** TODO: Add mixins: string[] for interface-like multiple inheritance */
+  mixins?: string[];
+  /** Total children of any allowed type. null means no bound. */
+  childMin?: number | null;
+  childMax?: number | null;
   attributes: MetaAttribute[];
   pointers: MetaPointer[];
   sets: MetaSet[];

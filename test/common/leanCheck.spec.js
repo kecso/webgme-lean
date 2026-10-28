@@ -27,6 +27,8 @@ var domain = [
     '  _id : _NodeId',
     '  _type : _Type',
     '  name : String',
+    '  _containment : List _NodeId',
+    '  _parent : Option _NodeId',
     '  deriving Repr',
     '',
     'instance : BEq FCO where',
@@ -40,13 +42,7 @@ var domain = [
     'instance : Coe Item FCO where',
     '  coe := Item.toFCO',
     '',
-    'inductive _BoxChild where',
-    '  | cItem : Item → _BoxChild',
-    '  deriving Repr',
-    '',
-    'structure Box extends FCO where',
-    '  _containment : List _BoxChild',
-    '  deriving Repr',
+    'structure Box extends FCO deriving Repr',
     '',
     'instance : BEq Box where',
     '  beq a b := a._id == b._id',
@@ -54,12 +50,40 @@ var domain = [
     'instance : Coe Box FCO where',
     '  coe := Box.toFCO',
     '',
-    'instance : _Contained Box Item where',
-    '  children parent := parent._containment.filterMap fun',
-    '    | .cItem node => some node',
+    'def isA (child parent : _Type) : Bool :=',
+    '  match child, parent with',
+    '  | .cItem, .cItem => true',
+    '  | .cItem, .cFCO => true',
+    '  | .cBox, .cBox => true',
+    '  | .cBox, .cFCO => true',
+    '  | .cFCO, .cFCO => true',
+    '  | _, _ => false',
     '',
-    'def Box_atLeast_1_Item (m : Box) : Bool :=',
-    '  (_Contained.children (child := Item) m).length ≥ 1',
+    'def allowed (parent child : _Type) : Bool :=',
+    '  match parent with',
+    '  | .cBox => isA child .cItem',
+    '  | _ => false',
+    '',
+    'def countOfType (ids : List _NodeId) (want : _Type) (resolve : _NodeId → Option _Type) : Nat :=',
+    '  ids.foldl (fun acc id =>',
+    '    match resolve id with',
+    '    | some t => if isA t want then acc + 1 else acc',
+    '    | none => acc) 0',
+    '',
+    'def childrenAllowed (n : FCO) (resolve : _NodeId → Option _Type) : Bool :=',
+    '  n._containment.all fun id =>',
+    '    match resolve id with',
+    '    | some t => allowed n._type t',
+    '    | none => false',
+    '',
+    'def parentOf (n : FCO) : Option _NodeId :=',
+    '  n._parent',
+    '',
+    'def _Box_child_type (m : Box) (resolve : _NodeId → Option _Type) : Bool :=',
+    '  childrenAllowed m.toFCO resolve',
+    '',
+    'def _Box_Item_child_cardinality (m : Box) (resolve : _NodeId → Option _Type) : Bool :=',
+    '  countOfType m._containment .cItem resolve ≥ 1',
     ''
 ].join('\n');
 
@@ -144,8 +168,11 @@ describe('leanCheck', function () {
         var program = programFor(1);
         assert.strictEqual(program.ok, true, program.error);
         assert.ok(program.source.indexOf('def checkedModel : Box :=') !== -1);
+        assert.ok(program.source.indexOf('_parent := some ⟨"/box"⟩') !== -1);
+        assert.ok(program.source.indexOf('_containment := [⟨"/item0"⟩]') !== -1);
         assert.ok(program.source.indexOf('theorem ExactlyOne_holds') !== -1);
-        assert.ok(program.source.indexOf('theorem Box_atLeast_1_Item_holds') !== -1);
+        assert.ok(program.source.indexOf('theorem _Box_Item_child_cardinality_holds') !== -1);
+        assert.ok(program.source.indexOf('theorem _Box_child_type_holds') !== -1);
         assert.ok(program.source.trim().endsWith('end Demo'));
     });
 

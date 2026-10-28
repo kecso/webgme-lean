@@ -45,17 +45,33 @@ define([
 
     function typeNamesOf(core, node) {
         var names = [];
-        var current = core.getMetaType(node);
-        while (current) {
-            var name = core.getAttribute(current, 'name');
-            if (!name || name === 'FCO') {
-                if (name === 'FCO') {
-                    names.push(name);
-                }
-                break;
+        var seen = {};
+        var queue = [];
+        var meta = core.getMetaType(node);
+        if (meta) {
+            queue.push(meta);
+        }
+        while (queue.length) {
+            var current = queue.shift();
+            var path = current && core.getPath(current);
+            var name;
+            if (!current || seen[path]) {
+                continue;
             }
-            names.push(name);
-            current = core.getBase(current);
+            seen[path] = true;
+            name = core.getAttribute(current, 'name');
+            if (name) {
+                names.push(name);
+            }
+            if (core.getBase(current)) {
+                queue.push(core.getBase(current));
+            }
+            var mixins = core.getMixinNodes(current) || {};
+            Object.keys(mixins).forEach(function (mixinPath) {
+                if (mixins[mixinPath]) {
+                    queue.push(mixins[mixinPath]);
+                }
+            });
         }
         return names;
     }

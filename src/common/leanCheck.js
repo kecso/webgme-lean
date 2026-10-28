@@ -83,10 +83,58 @@
         return items;
     }
 
+    function fcoView(expr, env, types, scopeType) {
+        var value = translateExpr(expr, env, types, scopeType);
+        var typeName = null;
+        var bound;
+        if (expr && expr.k === 'name') {
+            bound = boundVar(env, expr.name);
+            if (bound && bound.typeName) {
+                typeName = bound.typeName;
+            }
+        }
+        if (typeName === 'FCO') {
+            return value;
+        }
+        return '(' + value + '.toFCO)';
+    }
+
+    function effectiveContainments(types, typeName) {
+        var seen = {};
+        var rules = [];
+        var queue = typeName ? [typeName] : [];
+        var guard = {};
+        while (queue.length) {
+            var currentName = queue.shift();
+            var current;
+            if (!currentName || guard[currentName]) {
+                continue;
+            }
+            guard[currentName] = true;
+            current = types[currentName];
+            if (!current) {
+                continue;
+            }
+            (current.containments || []).forEach(function (rule) {
+                if (!rule.childType || seen[rule.childType]) {
+                    return;
+                }
+                seen[rule.childType] = true;
+                rules.push(rule);
+            });
+            if (current.baseType) {
+                queue.push(current.baseType);
+            }
+            (current.mixins || []).forEach(function (mixinName) {
+                queue.push(mixinName);
+            });
+        }
+        return rules;
+    }
+
     function containedNames(types, scopeType) {
         var names = {};
-        var scope = types[scopeType];
-        (scope && scope.containments || []).forEach(function (child) {
+        effectiveContainments(types, scopeType).forEach(function (child) {
             if (child.childType) {
                 names[child.childType] = true;
             }
@@ -177,6 +225,12 @@
             return '!(' + translateExpr(expr.expr, env, types, scopeType) + ')';
         }
         if (expr.k === 'attr') {
+            if (expr.name === 'parent') {
+                return '(parentOf ' + fcoView(expr.expr, env, types, scopeType) + ')';
+            }
+            if (expr.name === 'children') {
+                return '(' + fcoView(expr.expr, env, types, scopeType) + ')._containment';
+            }
             return '(' + translateExpr(expr.expr, env, types, scopeType) + ').' + leanIdent(expr.name);
         }
         if (expr.k === 'ptr') {
@@ -386,12 +440,24 @@
         return '.' + ctorIdent(host) + ' ' + term;
     }
 
-    function emitNode(node, nodesById, types, rootId) {
-        var name = node.id === rootId ? 'checkedModel' : defName(node.id);
+    function nodeTerm(node, rootId) {
+        return node.id === rootId ? 'checkedModel' : defName(node.id);
+    }
+
+    function emitNode(node, nodesById, types, rootId, parentOf) {
+        var name = nodeTerm(node, rootId);
+        var parentId = parentOf[node.id];
+        var childIds = node.children || [];
         var lines = ['def ' + name + ' : ' + leanIdent(node.metaType) + ' := {'];
         lines.push('  _id := ⟨' + leanString(node.id === '' ? '/' : node.id) + '⟩');
         lines.push('  _type := .' + ctorIdent(node.metaType));
         lines.push('  name := ' + leanString(node.name || ''));
+        lines.push('  _parent := ' + (parentId
+            ? 'some ⟨' + leanString(parentId === '' ? '/' : parentId) + '⟩'
+            : 'none'));
+        lines.push('  _containment := [' + childIds.map(function (childId) {
+            return '⟨' + leanString(childId === '' ? '/' : childId) + '⟩';
+        }).join(', ') + ']');
         inherited(types, node.metaType, 'attributes').forEach(function (attribute) {
             if (attribute.name === 'name') {
                 return;
@@ -414,14 +480,6 @@
             });
             lines.push('  ' + leanIdent(set.name) + ' := [' + terms.join(', ') + ']');
         });
-        if ((types[node.metaType] && types[node.metaType].containments || []).length) {
-            var children = (node.children || []).map(function (childId) {
-                return nodesById[childId];
-            }).filter(Boolean);
-            lines.push('  _containment := [' + children.map(function (child) {
-                return containmentTerm(child, node.metaType, types);
-            }).join(', ') + ']');
-        }
         lines.push('}');
         return lines.join('\n');
     }
@@ -447,9 +505,6 @@
                     deps.push(memberId);
                 });
             });
-            (node.children || []).forEach(function (childId) {
-                deps.push(childId);
-            });
             return deps.every(function (id) {
                 return !pending[id];
             });
@@ -471,16 +526,69 @@
         return ordered;
     }
 
-    function boundTheorems(domainSource, scopeType) {
+    function metaTheorems(domainSource, nodes, rootId) {
         var lines = [];
-        var re = /^def ([A-Za-z0-9_]+) \(m : ([A-Za-z0-9_]+)\) : Bool :=/gm;
+        var rules = [];
+        var re = /^def (_[A-Za-z0-9_«»]+) \([A-Za-z0-9_]+ : ([A-Za-z0-9_«»]+)\)(.*)$/gm;
         var match;
         while ((match = re.exec(domainSource))) {
-            if (match[2] === leanIdent(scopeType)) {
-                lines.push('theorem ' + match[1] + '_holds : ' + match[1] + ' checkedModel = true := rfl');
-            }
+            rules.push({
+                name: match[1],
+                typeName: match[2],
+                needsResolve: match[3].indexOf('resolve') !== -1
+            });
         }
+        nodes.forEach(function (node) {
+            var term = nodeTerm(node, rootId);
+            var typeName = leanIdent(node.metaType);
+            rules.forEach(function (rule) {
+                var theorem;
+                var args;
+                if (rule.typeName !== typeName) {
+                    return;
+                }
+                theorem = rule.name + (term === 'checkedModel' ? '_holds' : '_' + term + '_holds');
+                args = rule.needsResolve ? term + ' resolve' : term;
+                lines.push('theorem ' + theorem + ' : ' + rule.name + ' ' + args + ' = true := rfl');
+            });
+        });
         return lines;
+    }
+
+    function emitResolve(nodes, rootId) {
+        var clauses = nodes.map(function (node) {
+            return 'if id == ' + nodeTerm(node, rootId) + '._id then some .' + ctorIdent(node.metaType);
+        });
+        var body = clauses.length ? clauses.join('\n    else ') + '\n    else none' : 'none';
+        return 'def resolve : _NodeId → Option _Type\n  | id =>\n    ' + body;
+    }
+
+    function emitContained(scopeType, types, nodes, rootId) {
+        var chunks = [];
+        effectiveContainments(types, scopeType).forEach(function (rule) {
+            var target = leanIdent(rule.childType);
+            var reader = 'as' + target;
+            var clauses = [];
+            nodes.forEach(function (node) {
+                var value;
+                if (!isSubtype(types, node.metaType, rule.childType)) {
+                    return;
+                }
+                value = nodeTerm(node, rootId);
+                if (node.metaType !== rule.childType) {
+                    value = '(' + value + ' : ' + target + ')';
+                }
+                clauses.push('if id == ' + nodeTerm(node, rootId) + '._id then some ' + value);
+            });
+            chunks.push('def ' + reader + ' : _NodeId → Option ' + target);
+            chunks.push('  | id =>');
+            chunks.push('    ' + (clauses.length ? clauses.join('\n    else ') + '\n    else none' : 'none'));
+            chunks.push('');
+            chunks.push('instance : _Contained ' + leanIdent(scopeType) + ' ' + target + ' where');
+            chunks.push('  children parent := parent._containment.filterMap ' + reader);
+            chunks.push('');
+        });
+        return chunks.join('\n');
     }
 
     function buildProgram(options) {
@@ -508,13 +616,20 @@
         }
         try {
             var nodesById = {};
+            var parentOf = {};
             nodes.forEach(function (node) {
                 nodesById[node.id] = node;
+                (node.children || []).forEach(function (childId) {
+                    parentOf[childId] = node.id;
+                });
             });
             orderNodes(nodes).forEach(function (node) {
-                body.push(emitNode(node, nodesById, types, rootId));
+                body.push(emitNode(node, nodesById, types, rootId, parentOf));
                 body.push('');
             });
+            body.push(emitResolve(nodes, rootId));
+            body.push('');
+            body.push(emitContained(scopeType, types, nodes, rootId));
             env = {model: 'checked', vars: {}};
             (parsed.constraints || []).forEach(function (constraint) {
                 var expr = translateExpr(constraint.body, env, types, scopeType);
@@ -524,7 +639,7 @@
                     leanIdent(constraint.name) + ' checkedModel = true := rfl');
                 body.push('');
             });
-            boundTheorems(domainSource, scopeType).forEach(function (line) {
+            metaTheorems(domainSource, nodes, rootId).forEach(function (line) {
                 body.push(line);
             });
         } catch (err) {
@@ -545,19 +660,18 @@
         Object.keys(concepts).forEach(function (metaPath) {
             var concept = concepts[metaPath];
             var base = concept.base ? concepts[concept.base] : null;
-            var baseChildren = {};
             if (!concept.name || concept.name === 'META') {
                 return;
-            }
-            if (base && base.children && base.children.targets) {
-                base.children.targets.forEach(function (target) {
-                    baseChildren[target.path] = true;
-                });
             }
             nodes.push({
                 name: concept.name,
                 isAbstract: concept.isAbstract === true,
                 baseType: base ? base.name : null,
+                mixins: (concept.mixins || []).map(function (mixin) {
+                    return mixin.name;
+                }).filter(Boolean),
+                childMin: concept.children ? concept.children.min : null,
+                childMax: concept.children ? concept.children.max : null,
                 attributes: Object.keys(concept.attributes || {}).filter(function (name) {
                     return concept.attributes[name] && concept.attributes[name].own;
                 }).map(function (name) {
@@ -582,11 +696,20 @@
                         name: name,
                         memberTypes: (set.targets || []).map(function (target) { return target.name; }).filter(Boolean),
                         min: set.min || 0,
-                        max: set.max === undefined ? null : set.max
+                        max: set.max === undefined ? null : set.max,
+                        members: (set.targets || []).filter(function (target) {
+                            return !!target.name;
+                        }).map(function (target) {
+                            return {
+                                memberType: target.name,
+                                min: target.min || 0,
+                                max: target.max === undefined ? null : target.max
+                            };
+                        })
                     };
                 }),
                 containments: ((concept.children && concept.children.targets) || []).filter(function (target) {
-                    return target.name && !baseChildren[target.path];
+                    return !!target.name;
                 }).map(function (target) {
                     return {
                         childType: target.name,

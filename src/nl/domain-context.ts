@@ -54,8 +54,9 @@ The constraint language uses first-order logic with quantifiers (forall, exists)
 When translating natural language to constraints:
 1. Identify the types and relationships mentioned
 2. Determine if it's a universal (forall) or existential (exists) statement
-3. Express the constraint using the appropriate syntax
-4. Use descriptive constraint names
+3. Introduce every quantifier body with a colon. where is only a filter before that colon
+4. Put parentheses around a quantifier that is used as an expression, including after not
+5. Use descriptive constraint names
 
 When explaining constraints in natural language:
 1. Describe what the constraint enforces in plain English
@@ -79,10 +80,24 @@ constraint <ConstraintName> [severity]
 \`\`\`
 
 ### Quantifiers
+The colon starts the body. where is a filter and always comes before the colon. Do not write where in place of the colon.
+
 \`\`\`
-forall <var> in <Type> [where <condition>]: <body>
-exists <var> in <Type> [where <condition>]: <body>
+forall <var> in <Type>: <body>
+exists <var> in <Type>: <body>
+forall <var> in <Type> where <filter>: <body>
+exists <var> in <Type> where <filter>: <body>
 \`\`\`
+
+not, and, or, and implies apply to expressions. A quantifier used as an expression is written in parentheses.
+
+\`\`\`
+forall init in InitState:
+  not (exists trans in Transition:
+    trans->dst == init)
+\`\`\`
+
+Do not write \`not exists\` or \`forall init in InitState where\` when the next part is the body.
 
 ### Operators
 - Logical: \`and\`, \`or\`, \`not\`, \`implies\`

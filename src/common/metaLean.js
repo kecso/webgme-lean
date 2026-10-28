@@ -9,6 +9,13 @@ define([
 ], function (leanFix) {
     'use strict';
 
+    function bound(value) {
+        if (value === undefined || value === null || value === -1) {
+            return null;
+        }
+        return value;
+    }
+
     function finiteMin(value) {
         if (value === undefined || value === null || value === -1) {
             return 0;
@@ -63,6 +70,7 @@ define([
         var containments = [];
         var childrenMeta;
         var childItems;
+        var mixins = [];
 
         if (baseId && metaPaths[baseId]) {
             baseName = metaPaths[baseId].getAttribute('name') || null;
@@ -100,7 +108,19 @@ define([
                 name: name,
                 memberTypes: targetNames(client, meta),
                 min: finiteMin(meta.min),
-                max: finiteMax(meta.max)
+                max: finiteMax(meta.max),
+                members: (meta.items || []).map(function (item) {
+                    var target = item && item.id ? client.getNode(item.id) : null;
+                    var memberType = target && target.getAttribute('name');
+                    if (!memberType) {
+                        return null;
+                    }
+                    return {
+                        memberType: memberType,
+                        min: finiteMin(item.min),
+                        max: finiteMax(item.max)
+                    };
+                }).filter(Boolean)
             });
         });
 
@@ -109,6 +129,14 @@ define([
         (childrenMeta.items || []).forEach(function (item) {
             childItems[item.id] = item;
         });
+        (node.getMixinPaths() || []).forEach(function (mixinPath) {
+            var mixin = client.getNode(mixinPath);
+            var mixinName = mixin && mixin.getAttribute('name');
+            if (mixinName) {
+                mixins.push(mixinName);
+            }
+        });
+
         ownChildPaths(client, path).forEach(function (childPath) {
             var child = client.getNode(childPath);
             var childName = child && child.getAttribute('name');
@@ -127,6 +155,9 @@ define([
             name: node.getAttribute('name'),
             isAbstract: node.isAbstract() === true,
             baseType: baseName,
+            mixins: mixins,
+            childMin: bound(childrenMeta.min),
+            childMax: bound(childrenMeta.max),
             attributes: attributes,
             pointers: pointers,
             sets: sets,

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { NLConstraintTranslator } from '../src/nl/nl-translator';
+import { NLConstraintTranslator, normalizeGeneratedConstraint } from '../src/nl/nl-translator';
 import { ConstraintExplainer } from '../src/nl/constraint-explainer';
 import { createDomainContext, generateCompactContext } from '../src/nl/domain-context';
 import { DomainDSL } from '../src/generator/dsl-generator';
@@ -243,6 +243,28 @@ exists s in State: s.isInitial == true`;
   });
 });
 
+describe('normalizeGeneratedConstraint', () => {
+  it('turns a bare where into the quantifier colon and groups not exists', () => {
+    const source = [
+      'constraint NoIncoming [error]',
+      'forall init in InitState where',
+      '  not exists trans in Transition where',
+      '    trans->dst == init'
+    ].join('\n');
+    const text = normalizeGeneratedConstraint(source);
+
+    expect(text).toContain('forall init in InitState:');
+    expect(text).toContain('not (exists trans in Transition:');
+    expect(text).toContain('trans->dst == init)');
+    expect(text).not.toContain(' where');
+  });
+
+  it('keeps a where filter that is followed by a colon', () => {
+    const source = 'forall e2 in State where e1.name == e2.name:\n  e1 == e2';
+    expect(normalizeGeneratedConstraint(source)).toBe(source);
+  });
+});
+
 describe('Domain Context', () => {
   describe('createDomainContext', () => {
     it('should generate system prompt', () => {
@@ -261,6 +283,8 @@ describe('Domain Context', () => {
       expect(context.syntaxReference).toContain('forall');
       expect(context.syntaxReference).toContain('exists');
       expect(context.syntaxReference).toContain('implies');
+      expect(context.syntaxReference).toContain('not (exists trans in Transition:');
+      expect(context.syntaxReference).toContain('Do not write `not exists`');
     });
 
     it('should generate type descriptions', () => {
