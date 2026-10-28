@@ -2,8 +2,10 @@
 /*eslint-env node, browser*/
 
 /**
- * Generates a Lean file for one model instance and runs it with the
- * toolchain in the lean/ directory.
+ * Generates Lean modules for a model instance and runs them with the
+ * toolchain in the lean/ directory. Domain types and constraint defs are
+ * written to Generated/Domain.lean and rebuilt only when that text changes,
+ * so repeated checks of different instances reuse the compiled domain.
  */
 
 define([
@@ -13,9 +15,9 @@ define([
     'webgme-lean/metaLanguage',
     'webgme-lean/leanFix',
     'webgme-lean/leanCheck',
+    'crypto',
     'fs',
     'path',
-    'os',
     'child_process'
 ], function (
     PluginBase,
@@ -24,9 +26,9 @@ define([
     metaLanguage,
     leanFix,
     leanCheck,
+    crypto,
     fs,
     path,
-    os,
     childProcess
 ) {
     'use strict';
@@ -118,21 +120,21 @@ define([
         return String(id).split('+').pop() || 'Domain';
     }
 
-    function runLean(filePath, cwd) {
+    function runCommand(args, cwd, timeoutMs) {
         return new Promise(function (resolve) {
             var proc;
             var stdout = '';
             var stderr = '';
             var timer;
             try {
-                proc = childProcess.spawn('lake', ['env', 'lean', filePath], {cwd: cwd});
+                proc = childProcess.spawn(args[0], args.slice(1), {cwd: cwd});
             } catch (err) {
-                resolve({code: 127, stdout: '', stderr: err.message || String(err)});
+                resolve({code: 127, stdout: '', stderr: err.message || String(err), args: args});
                 return;
             }
             timer = setTimeout(function () {
                 proc.kill('SIGKILL');
-            }, 120000);
+            }, timeoutMs || 120000);
             proc.stdout.on('data', function (chunk) {
                 stdout += chunk.toString();
             });
@@ -141,12 +143,89 @@ define([
             });
             proc.on('error', function (err) {
                 clearTimeout(timer);
-                resolve({code: 127, stdout: stdout, stderr: err.message || String(err)});
+                resolve({code: 127, stdout: stdout, stderr: err.message || String(err), args: args});
             });
             proc.on('close', function (code) {
                 clearTimeout(timer);
-                resolve({code: code, stdout: stdout, stderr: stderr});
+                resolve({code: code, stdout: stdout, stderr: stderr, args: args});
             });
+        });
+    }
+
+    function sha256(text) {
+        return crypto.createHash('sha256').update(String(text || ''), 'utf8').digest('hex');
+    }
+
+    function writeIfChanged(filePath, contents) {
+        var next = String(contents || '');
+        var previous = null;
+        try {
+            previous = fs.readFileSync(filePath, 'utf8');
+        } catch (err) {
+            previous = null;
+        }
+        if (previous === next) {
+            return false;
+        }
+        fs.mkdirSync(path.dirname(filePath), {recursive: true});
+        fs.writeFileSync(filePath, next);
+        return true;
+    }
+
+    /**
+     * Compile Domain.lean when needed, then check the model module against it.
+     * Lake reuses Generated/Domain.olean when the domain text is unchanged.
+     */
+    function runIncrementalCheck(program, leanDir) {
+        var generatedDir = path.join(leanDir, 'Generated');
+        var domainPath = path.join(generatedDir, 'Domain.lean');
+        var checkPath = path.join(generatedDir, 'Check.lean');
+        var hashPath = path.join(generatedDir, 'Domain.hash');
+        var domainHash = sha256(program.domainModule);
+        var domainChanged = writeIfChanged(domainPath, program.domainModule);
+        var storedHash = null;
+        try {
+            storedHash = fs.readFileSync(hashPath, 'utf8').trim();
+        } catch (err) {
+            storedHash = null;
+        }
+        if (domainChanged || storedHash !== domainHash) {
+            domainChanged = true;
+        }
+        writeIfChanged(checkPath, program.modelModule);
+
+        function checkModel(domainBuild) {
+            return runCommand(['lake', 'env', 'lean', checkPath], leanDir).then(function (lean) {
+                return {
+                    code: lean.code,
+                    stdout: ((domainBuild && domainBuild.stdout) || '') + (lean.stdout || ''),
+                    stderr: ((domainBuild && domainBuild.stderr) || '') + (lean.stderr || ''),
+                    command: 'lake build Generated.Domain && lake env lean ' + checkPath,
+                    domainRebuilt: !!(domainBuild && domainBuild.rebuilt),
+                    checkPath: checkPath,
+                    domainPath: domainPath
+                };
+            });
+        }
+
+        if (!domainChanged) {
+            return checkModel(null);
+        }
+        return runCommand(['lake', 'build', 'Generated.Domain'], leanDir).then(function (build) {
+            if (build.code !== 0) {
+                return {
+                    code: build.code,
+                    stdout: build.stdout,
+                    stderr: build.stderr,
+                    command: 'lake build Generated.Domain',
+                    domainRebuilt: true,
+                    checkPath: checkPath,
+                    domainPath: domainPath
+                };
+            }
+            fs.writeFileSync(hashPath, domainHash + '\n');
+            build.rebuilt = true;
+            return checkModel(build);
         });
     }
 
@@ -322,7 +401,6 @@ define([
             var language;
             var dsl;
             var program;
-            var filePath;
             var rootPath;
             var rootRecord;
 
@@ -391,6 +469,12 @@ define([
                     'constraints.txt': text,
                     'model.json': JSON.stringify(described, null, 2)
                 };
+                if (program && program.domainModule) {
+                    files['Domain.lean'] = program.domainModule;
+                }
+                if (program && program.modelModule) {
+                    files['Check.lean'] = program.modelModule;
+                }
                 if (program && program.source) {
                     files['model.lean'] = program.source;
                 }
@@ -424,19 +508,12 @@ define([
                 return;
             }
 
-            filePath = path.join(os.tmpdir(), 'webgme-lean-' + process.pid + '-' + Date.now() + '.lean');
-            fs.writeFileSync(filePath, program.source);
-            runLean(filePath, leanDir).then(function (lean) {
+            runIncrementalCheck(program, leanDir).then(function (lean) {
                 var output = (lean.stderr || '') + '\n' + (lean.stdout || '');
-                var command = 'lake env lean ' + filePath;
                 var diagnosis;
-                try {
-                    fs.unlinkSync(filePath);
-                } catch (unlinkErr) {
-                    self.logger.warn(unlinkErr);
-                }
+                // Diagnose against the model module: theorem lines and Lean errors live there.
                 diagnosis = leanCheck.diagnoseRun({
-                    source: program.source,
+                    source: program.modelModule,
                     log: output,
                     text: text,
                     nodes: described,
@@ -461,7 +538,8 @@ define([
                             self.createMessage(self.activeNode, failure.detail, 'error');
                         });
                     }
-                    self.logger.info('Lean exited ' + lean.code);
+                    self.logger.info('Lean exited ' + lean.code +
+                        (lean.domainRebuilt ? ' (domain rebuilt)' : ' (domain reused)'));
                 }
                 var summaryPromise = lean.code === 0 || lean.code === 127
                     ? Promise.resolve('')
@@ -469,9 +547,11 @@ define([
                 return summaryPromise.then(function (summary) {
                     publish(leanLog({
                         code: lean.code,
-                        command: command,
+                        command: lean.command,
                         cwd: leanDir,
-                        note: 'The checked source is model.lean in this run record.',
+                        note: lean.domainRebuilt
+                            ? 'Domain.lean was rebuilt; Check.lean was checked against it.'
+                            : 'Domain.olean was reused; only Check.lean was elaborated.',
                         stdout: lean.stdout,
                         stderr: lean.stderr
                     }), function () {

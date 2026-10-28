@@ -43,6 +43,10 @@ cd lean
 lake build
 ```
 
+Model checks from the Constraint Manager use a separate `Generated` Lake library.
+Domain types and constraint defs go in `Generated/Domain.lean`; the instance goes in
+`Generated/Check.lean`. See [incremental-checking.md](./incremental-checking.md).
+
 ## What a check establishes
 
 `lean` elaborates the file and checks every `def` and `theorem`. A `theorem ... := rfl` holds when both sides reduce to the same value. `ExactlyOneInit counter` is not checked until a theorem states it, for example `theorem one_init : ExactlyOneInit counter = true := rfl`.
