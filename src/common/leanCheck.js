@@ -722,8 +722,244 @@
         return nodes;
     }
 
+    function constraintSections(text) {
+        var sections = [];
+        var current = null;
+        String(text || '').split(/\r?\n/).forEach(function (line) {
+            var match = /^\s*constraint\s+([A-Za-z_]\w*)/.exec(line);
+            if (match) {
+                current = {name: match[1], lines: []};
+                sections.push(current);
+                return;
+            }
+            if (!current || !line.trim() || /^\s*\/\//.test(line) || /^\s*constraintset\b/.test(line)) {
+                return;
+            }
+            if (/^\s*(constraint|define)\b/.test(line)) {
+                current = null;
+                return;
+            }
+            current.lines.push(line.trim());
+        });
+        return sections;
+    }
+
+    function declarations(source) {
+        var items = [];
+        String(source || '').split(/\r?\n/).forEach(function (line, index) {
+            var match = /^(theorem|def)\s+([A-Za-z0-9_«»]+)/.exec(line);
+            if (match) {
+                items.push({kind: match[1], name: match[2], line: index + 1});
+            }
+        });
+        return items;
+    }
+
+    function leanErrors(logText) {
+        var errors = [];
+        var current = null;
+        String(logText || '').split(/\r?\n/).forEach(function (line) {
+            var match = /^.*:(\d+):\d+:\s*error:\s*(.*)$/.exec(line);
+            if (match) {
+                current = {line: Number(match[1]), message: match[2], lines: [match[2]]};
+                errors.push(current);
+                return;
+            }
+            if (current && line.trim()) {
+                current.lines.push(line);
+            }
+        });
+        return errors;
+    }
+
+    function splitOwner(rest, concepts) {
+        var best = '';
+        (concepts || []).forEach(function (name) {
+            var ident = leanIdent(name);
+            if ((rest === ident || rest.indexOf(ident + '_') === 0) && ident.length > best.length) {
+                best = ident;
+            }
+        });
+        if (!best) {
+            return {owner: rest, tail: ''};
+        }
+        return {owner: best, tail: rest.slice(best.length).replace(/^_/, '')};
+    }
+
+    function metaDetail(rule, nodeLabel, concepts) {
+        var tail;
+        var split;
+        var parts;
+        if (/_child_type$/.test(rule)) {
+            return nodeLabel + ' has a child whose type is not allowed.';
+        }
+        if (/_child_cardinality$/.test(rule)) {
+            tail = rule.replace(/^_/, '').replace(/_child_cardinality$/, '');
+            split = splitOwner(tail, concepts);
+            if (split.tail) {
+                return nodeLabel + ' does not have the required number of ' + split.tail + ' children.';
+            }
+            return nodeLabel + ' does not have the required number of children.';
+        }
+        if (/_member_cardinality$/.test(rule)) {
+            tail = rule.replace(/^_/, '').replace(/_member_cardinality$/, '');
+            split = splitOwner(tail, concepts);
+            parts = split.tail ? split.tail.split('_') : [];
+            if (parts.length >= 2) {
+                return nodeLabel + ' does not have the required number of ' +
+                    parts.slice(1).join(' ') + ' members in ' + parts[0] + '.';
+            }
+            if (parts.length === 1) {
+                return nodeLabel + ' does not have the required number of members in ' + parts[0] + '.';
+            }
+            return nodeLabel + ' does not have the required number of set members.';
+        }
+        return rule + ' does not hold for ' + nodeLabel + '.';
+    }
+
+    function diagnoseRun(options) {
+        var source = options && options.source || '';
+        var text = options && options.text || '';
+        var nodes = options && options.nodes || [];
+        var rootId = options && options.rootId;
+        var passed = !!(options && options.ok);
+        var decls = declarations(source);
+        var sections = constraintSections(text);
+        var byName = {};
+        var concepts = {};
+        var failures = [];
+        var seen = {};
+        var firstErrorLine = null;
+        nodes.forEach(function (node) {
+            byName[nodeTerm(node, rootId)] = node;
+            if (node.metaType) {
+                concepts[node.metaType] = true;
+            }
+        });
+        concepts.FCO = true;
+        function nodeLabel(term) {
+            var node = byName[term];
+            if (node && node.name) {
+                return node.name;
+            }
+            if (term === 'checkedModel') {
+                return 'the model';
+            }
+            return term;
+        }
+        function describeTheorem(theorem) {
+            var stem = theorem.endsWith('_holds') ? theorem.slice(0, -'_holds'.length) : theorem;
+            var section = null;
+            var rule = stem;
+            var term = 'checkedModel';
+            var bestLen = 0;
+            sections.forEach(function (item) {
+                if (leanIdent(item.name) === stem) {
+                    section = item;
+                }
+            });
+            if (section) {
+                return {
+                    kind: 'constraint',
+                    name: section.name,
+                    body: section.lines.join(' '),
+                    detail: section.name + ' does not hold.' +
+                        (section.lines.length ? ' ' + section.lines.join(' ') : '')
+                };
+            }
+            Object.keys(byName).forEach(function (candidate) {
+                if (candidate !== 'checkedModel' && stem.endsWith('_' + candidate) &&
+                        candidate.length > bestLen) {
+                    bestLen = candidate.length;
+                    rule = stem.slice(0, -(candidate.length + 1));
+                    term = candidate;
+                }
+            });
+            if (rule.charAt(0) === '_') {
+                return {
+                    kind: 'meta',
+                    name: rule,
+                    body: '',
+                    detail: metaDetail(rule, nodeLabel(term), Object.keys(concepts))
+                };
+            }
+            return null;
+        }
+        if (!passed) {
+            leanErrors(options && options.log).forEach(function (error) {
+                var nearest = null;
+                var described;
+                decls.forEach(function (decl) {
+                    if (decl.line <= error.line) {
+                        nearest = decl;
+                    }
+                });
+                if (firstErrorLine === null || error.line < firstErrorLine) {
+                    firstErrorLine = error.line;
+                }
+                if (!nearest || seen[nearest.name]) {
+                    return;
+                }
+                seen[nearest.name] = true;
+                described = nearest.kind === 'theorem' ? describeTheorem(nearest.name) : null;
+                if (!described) {
+                    failures.push({
+                        kind: 'program',
+                        name: nearest.name,
+                        body: '',
+                        detail: 'The generated check failed. ' + error.lines.slice(0, 4).join(' ')
+                    });
+                    return;
+                }
+                failures.push(described);
+            });
+            if (!failures.length) {
+                failures.push({
+                    kind: 'program',
+                    name: '',
+                    body: '',
+                    detail: 'The check failed before a constraint could be named.'
+                });
+            }
+        }
+        return {
+            ok: passed,
+            failures: failures,
+            proved: sections.filter(function (section) {
+                var theorem = leanIdent(section.name) + '_holds';
+                var decl = null;
+                decls.forEach(function (item) {
+                    if (item.kind === 'theorem' && item.name === theorem) {
+                        decl = item;
+                    }
+                });
+                if (!decl) {
+                    return false;
+                }
+                if (passed) {
+                    return true;
+                }
+                return firstErrorLine !== null && decl.line < firstErrorLine && !seen[theorem];
+            }).map(function (section) { return section.name; }),
+            metaChecked: decls.filter(function (decl) {
+                return decl.kind === 'theorem' && decl.name.charAt(0) === '_';
+            }).length,
+            unchecked: sections.filter(function (section) {
+                var theorem = leanIdent(section.name) + '_holds';
+                var decl = null;
+                decls.forEach(function (item) {
+                    if (item.kind === 'theorem' && item.name === theorem) {
+                        decl = item;
+                    }
+                });
+                return decl && !passed && firstErrorLine !== null && decl.line > firstErrorLine;
+            }).map(function (section) { return section.name; })
+        };
+    }
+
     return {
         buildProgram: buildProgram,
-        metamodelNodes: metamodelNodes
+        metamodelNodes: metamodelNodes,
+        diagnoseRun: diagnoseRun
     };
 }));

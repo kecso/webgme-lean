@@ -244,6 +244,52 @@ describe('leanCheck', function () {
         });
     });
 
+    it('names the constraint that a Lean error points at', function () {
+        var program = programFor(2);
+        var line = program.source.split('\n').findIndex(function (entry) {
+            return entry.indexOf('theorem ExactlyOne_holds') === 0;
+        }) + 1;
+        var diagnosis = leanCheck.diagnoseRun({
+            source: program.source,
+            log: '/tmp/fail.lean:' + line + ':61: error: type mismatch\n  rfl\n',
+            text: text,
+            nodes: box(2),
+            rootId: '/box',
+            ok: false
+        });
+        assert.strictEqual(diagnosis.failures.length, 1);
+        assert.strictEqual(diagnosis.failures[0].name, 'ExactlyOne');
+        assert.match(diagnosis.failures[0].detail, /ExactlyOne does not hold/);
+        assert.match(diagnosis.failures[0].detail, /count\(Item\) == 1/);
+    });
+
+    it('names a failed containment rule and lists a proved constraint', function () {
+        var source = [
+            'theorem ExactlyOne_holds : ExactlyOne checkedModel = true := rfl',
+            'theorem _Box_Item_child_cardinality_holds : _Box_Item_child_cardinality checkedModel resolve = true := rfl'
+        ].join('\n');
+        var failed = leanCheck.diagnoseRun({
+            source: source,
+            log: 'model.lean:2:0: error: type mismatch',
+            text: text,
+            nodes: box(1),
+            rootId: '/box',
+            ok: false
+        });
+        var passed = leanCheck.diagnoseRun({
+            source: source,
+            log: '',
+            text: text,
+            nodes: box(1),
+            rootId: '/box',
+            ok: true
+        });
+        assert.match(failed.failures[0].detail, /box does not have the required number of Item children/);
+        assert.deepStrictEqual(failed.proved, ['ExactlyOne']);
+        assert.deepStrictEqual(passed.proved, ['ExactlyOne']);
+        assert.strictEqual(passed.metaChecked, 1);
+    });
+
     it('rejects the file in Lean when the constraint fails', function () {
         var program = programFor(2);
         assert.strictEqual(program.ok, true, program.error);

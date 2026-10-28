@@ -1105,9 +1105,8 @@ define([
         }
         function addLine(message, className) {
             var line = document.createElement('p');
-            var nodeName = message.activeNode && message.activeNode.name;
             line.className = className;
-            line.textContent = (nodeName ? nodeName + ': ' : '') + (message.message || '');
+            line.textContent = message.message || '';
             status.appendChild(line);
         }
         messages.forEach(function (message) {

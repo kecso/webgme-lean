@@ -156,6 +156,120 @@ define([
         }).filter(Boolean);
     }
 
+    function llmSettings(gmeConfig) {
+        var component = gmeConfig && gmeConfig.rest && gmeConfig.rest.components &&
+            gmeConfig.rest.components.leanllm;
+        var llm = (component && component.options && component.options.llm) || {};
+        var baseUrl = String(process.env.LLM_BASE_URL || llm.baseUrl || '').trim();
+        var model = String(process.env.LLM_MODEL || llm.model || '').trim();
+        var apiKey = String(process.env.LLM_API_KEY || llm.apiKey || '').trim();
+        return {
+            configured: baseUrl !== '' && model !== '',
+            baseUrl: baseUrl,
+            model: model,
+            apiKey: apiKey
+        };
+    }
+
+    function modelSketch(nodes, rootId) {
+        var byId = {};
+        var lines = [];
+        (nodes || []).forEach(function (node) {
+            byId[node.id] = node;
+        });
+        (nodes || []).slice(0, 40).forEach(function (node) {
+            var children = (node.children || []).map(function (id) {
+                var child = byId[id];
+                return child && child.name ? child.name : id;
+            });
+            lines.push((node.id === rootId ? 'model ' : '') +
+                (node.name || node.metaType || node.id) + ' : ' + (node.metaType || '') +
+                (children.length ? ' children ' + children.join(', ') : ''));
+        });
+        if ((nodes || []).length > 40) {
+            lines.push('... ' + ((nodes || []).length - 40) + ' more nodes');
+        }
+        return lines.join('\n');
+    }
+
+    function resultText(diagnosis) {
+        if (!diagnosis.ok) {
+            return (diagnosis.failures || []).map(function (failure) {
+                return failure.detail;
+            }).join('\n');
+        }
+        return 'All checks passed.';
+    }
+
+    function summarizeResult(settings, diagnosis, text, nodes, rootId) {
+        var headers;
+        var controller;
+        var timer;
+        var prompt;
+        if (!settings || !settings.configured) {
+            return Promise.resolve('');
+        }
+        prompt = [
+            'Model:',
+            modelSketch(nodes, rootId),
+            '',
+            'Constraints:',
+            text || '',
+            '',
+            diagnosis.ok ? 'Result: every checked constraint holds.' : 'Result: the check failed.',
+            resultText(diagnosis)
+        ];
+        if (diagnosis.unchecked && diagnosis.unchecked.length) {
+            prompt.push('Not checked, because the first failure stopped the run: ' + diagnosis.unchecked.join(', '));
+        }
+        headers = {'Content-Type': 'application/json'};
+        if (settings.apiKey) {
+            headers.Authorization = 'Bearer ' + settings.apiKey;
+        }
+        controller = new AbortController();
+        timer = setTimeout(function () { controller.abort(); }, 45000);
+        return Promise.resolve().then(function () {
+            return fetch(settings.baseUrl.replace(/\/$/, '') + '/chat/completions', {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify({
+                model: settings.model,
+                temperature: 0,
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'You explain a model check to the person who built the model. ' +
+                            'Use plain sentences. Name the constraints that failed and say why. ' +
+                            'Report only the failures in the result. Do not invent extra problems. ' +
+                            'Do not mention Lean, theorems, or source code. At most four sentences.'
+                    },
+                    {role: 'user', content: prompt.join('\n')}
+                ]
+            }),
+            signal: controller.signal
+            });
+        }).then(function (response) {
+            return response.text().then(function (body) {
+                var json;
+                var content;
+                if (!response.ok) {
+                    throw new Error('The summary request failed (' + response.status + ').');
+                }
+                json = JSON.parse(body);
+                content = json.choices && json.choices[0] && json.choices[0].message &&
+                    json.choices[0].message.content;
+                if (!content) {
+                    throw new Error('The summary response was empty.');
+                }
+                return String(content).trim();
+            });
+        }).catch(function () {
+            return null;
+        }).finally(function () {
+            clearTimeout(timer);
+        });
+    }
+
     function leanLog(info) {
         var lines = [
             'exit: ' + (info.code === undefined || info.code === null ? 'not run' : info.code)
@@ -313,40 +427,56 @@ define([
             filePath = path.join(os.tmpdir(), 'webgme-lean-' + process.pid + '-' + Date.now() + '.lean');
             fs.writeFileSync(filePath, program.source);
             runLean(filePath, leanDir).then(function (lean) {
-                var output = leanLines((lean.stderr || '') + '\n' + (lean.stdout || ''));
+                var output = (lean.stderr || '') + '\n' + (lean.stdout || '');
                 var command = 'lake env lean ' + filePath;
+                var diagnosis;
                 try {
                     fs.unlinkSync(filePath);
                 } catch (unlinkErr) {
                     self.logger.warn(unlinkErr);
                 }
-                publish(leanLog({
-                    code: lean.code,
-                    command: command,
-                    cwd: leanDir,
-                    note: 'The checked source is model.lean in this run record.',
-                    stdout: lean.stdout,
-                    stderr: lean.stderr
-                }), function () {
-                    if (lean.code === 0) {
+                diagnosis = leanCheck.diagnoseRun({
+                    source: program.source,
+                    log: output,
+                    text: text,
+                    nodes: described,
+                    rootId: rootPath,
+                    ok: lean.code === 0
+                });
+                function reportMessages(summary) {
+                    if (lean.code === 127) {
                         self.createMessage(
                             self.activeNode,
-                            program.proved
-                                ? 'Lean accepted the model.'
-                                : 'Lean accepted the model. There were no constraints to prove.',
-                            'info'
+                            leanLines(output)[0] || 'Lean is not available. Install elan, then run lake update in the lean directory.',
+                            'error'
                         );
-                    } else if (lean.code === 127) {
-                        self.createMessage(self.activeNode, output[0] || 'Lean is not available. Install elan, then run lake update in the lean directory.', 'error');
+                        return;
+                    }
+                    if (summary) {
+                        self.createMessage(self.activeNode, summary, lean.code === 0 ? 'info' : 'error');
+                    } else if (lean.code === 0) {
+                        self.createMessage(self.activeNode, resultText(diagnosis), 'info');
                     } else {
-                        if (!output.length) {
-                            output.push('Lean rejected the model.');
-                        }
-                        output.forEach(function (line) {
-                            self.createMessage(self.activeNode, line, 'error');
+                        (diagnosis.failures || []).forEach(function (failure) {
+                            self.createMessage(self.activeNode, failure.detail, 'error');
                         });
                     }
                     self.logger.info('Lean exited ' + lean.code);
+                }
+                var summaryPromise = lean.code === 0 || lean.code === 127
+                    ? Promise.resolve('')
+                    : summarizeResult(llmSettings(self.gmeConfig), diagnosis, text, described, rootPath);
+                return summaryPromise.then(function (summary) {
+                    publish(leanLog({
+                        code: lean.code,
+                        command: command,
+                        cwd: leanDir,
+                        note: 'The checked source is model.lean in this run record.',
+                        stdout: lean.stdout,
+                        stderr: lean.stderr
+                    }), function () {
+                        reportMessages(summary);
+                    });
                 });
             }).catch(function (runErr) {
                 callback(runErr, self.result);
