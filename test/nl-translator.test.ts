@@ -263,6 +263,81 @@ describe('normalizeGeneratedConstraint', () => {
     const source = 'forall e2 in State where e1.name == e2.name:\n  e1 == e2';
     expect(normalizeGeneratedConstraint(source)).toBe(source);
   });
+
+  it('puts brackets around a bare severity word', () => {
+    const source = [
+      'constraint InitStateNoIncomingTransitions error',
+      'forall init in InitState:',
+      '  not (exists trans in Transition:',
+      '    trans->dst == init)'
+    ].join('\n');
+    expect(normalizeGeneratedConstraint(source)).toContain('constraint InitStateNoIncomingTransitions [error]');
+  });
+});
+
+describe('translate repair', () => {
+  const domain: DomainDSL = {
+    keywords: ['InitState', 'Transition', 'State'],
+    typeDefinitions: [],
+    validationRules: [],
+    leanImports: []
+  };
+
+  it('accepts a generated constraint whose variable starts with in', () => {
+    const translator = new NLConstraintTranslator({ domainDSL: domain });
+    const text = normalizeGeneratedConstraint([
+      'constraint InitStateNoIncomingTransitions error',
+      '// Ensures that the initial state does not have any incoming transitions.',
+      'forall init in InitState:',
+      '  not (exists trans in Transition:',
+      '    trans->dst == init)'
+    ].join('\n'));
+    const result = translator.validateConstraint(text);
+    expect(result.errors).toEqual([]);
+    expect(result.valid).toBe(true);
+  });
+
+  it('asks the model again when the constraint does not parse', async () => {
+    const calls: string[] = [];
+    const translator = new NLConstraintTranslator({
+      domainDSL: domain,
+      llmProvider: {
+        async complete(prompt: string) {
+          calls.push(prompt);
+          if (calls.length === 1) {
+            return '```constraint\nconstraint Broken [error]\nforall s in State\n  s.name != ""\n```';
+          }
+          return '```constraint\nconstraint HasName [error]\nforall s in State:\n  s.name != ""\n```\nEvery state has a name.';
+        }
+      }
+    });
+    const result = await translator.translate('every state has a name');
+    expect(calls.length).toBe(2);
+    expect(calls[1]).toContain('does not parse');
+    expect(result.success).toBe(true);
+    expect(result.constraint).toContain('forall s in State:');
+    expect(result.validationErrors).toBeUndefined();
+  });
+
+  it('does not return a constraint that still does not parse', async () => {
+    let calls = 0;
+    const translator = new NLConstraintTranslator({
+      domainDSL: domain,
+      llmProvider: {
+        async complete() {
+          calls += 1;
+          return '```constraint\nconstraint Broken [error]\nthis is not a constraint\n```';
+        }
+      }
+    });
+    const result = await translator.translate('every state has a name');
+    expect(calls).toBe(3);
+    expect(result.success).toBe(false);
+    expect(result.constraint).toBeUndefined();
+    expect(result.validationErrors).toEqual([
+      'That could not be written as a constraint. Try describing it another way.'
+    ]);
+  });
 });
 
 describe('Domain Context', () => {

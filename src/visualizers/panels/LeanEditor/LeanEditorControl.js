@@ -210,6 +210,18 @@ define([
 
         this._toolbarItems = [];
 
+        function quiet(button) {
+            var link = button && button.el && button.el.find('a');
+            if (!link || !link.length) {
+                return;
+            }
+            link.addClass('lean-quiet-btn');
+            link.removeAttr('href');
+            link.on('mousedown', function (event) {
+                event.preventDefault();
+            });
+        }
+
         this._toolbarItems.push(toolBar.addSeparator());
 
         this.$btnScope = toolBar.addDropDownButton({
@@ -219,6 +231,7 @@ define([
             text: 'Scope'
         });
         this._toolbarItems.push(this.$btnScope);
+        quiet(this.$btnScope);
 
         this.$btnSave = toolBar.addButton({
             title: 'Save the constraints on the project root',
@@ -228,6 +241,7 @@ define([
             }
         });
         this._toolbarItems.push(this.$btnSave);
+        quiet(this.$btnSave);
 
         this.$btnTheme = toolBar.addButton({
             title: 'Switch the editor to light mode',
@@ -241,6 +255,7 @@ define([
             }
         });
         this._toolbarItems.push(this.$btnTheme);
+        quiet(this.$btnTheme);
 
         this.$btnSheet = toolBar.addButton({
             title: 'Show the constraint cheat sheet',
@@ -250,6 +265,7 @@ define([
             }
         });
         this._toolbarItems.push(this.$btnSheet);
+        quiet(this.$btnSheet);
         this._widget.onCheatSheetToggle = function (open) {
             self._setCheatSheetButton(open);
         };
@@ -262,6 +278,7 @@ define([
             }
         });
         this._toolbarItems.push(this.$btnExplain);
+        quiet(this.$btnExplain);
         this.$btnExplain.enabled(false);
 
         this.$btnDescribe = toolBar.addButton({
@@ -272,6 +289,7 @@ define([
             }
         });
         this._toolbarItems.push(this.$btnDescribe);
+        quiet(this.$btnDescribe);
         this.$btnDescribe.enabled(false);
 
         this.$btnValidate = toolBar.addButton({
@@ -282,6 +300,7 @@ define([
             }
         });
         this._toolbarItems.push(this.$btnValidate);
+        quiet(this.$btnValidate);
 
         this.$btnLean = toolBar.addButton({
             title: 'Check a model with Lean',
@@ -291,6 +310,7 @@ define([
             }
         });
         this._toolbarItems.push(this.$btnLean);
+        quiet(this.$btnLean);
 
         this._widget.onConstraintCursor = function (active) {
             self._setExplainEnabled(active);
@@ -468,13 +488,7 @@ define([
         var concept;
         var scope = this._scope || constraintCheck.DEFAULT_SCOPE;
         if (scope === constraintCheck.DEFAULT_SCOPE) {
-            this._widget.openLeanDialog({
-                scope: scope,
-                instances: [{id: '', label: 'ROOT'}],
-                run: function () {
-                    return self._runLean('');
-                }
-            });
+            this._widget.showCheckResult('Check with Lean', this._runLean(''));
             return;
         }
         concept = this._conceptByName(scope);
@@ -528,12 +542,7 @@ define([
     };
 
     LeanEditorControl.prototype._openValidate = function () {
-        var self = this;
-        this._widget.openValidateDialog({
-            run: function () {
-                return self._runValidate();
-            }
-        });
+        this._widget.showCheckResult('Validate', this._runValidate());
     };
 
     LeanEditorControl.prototype._runValidate = function () {

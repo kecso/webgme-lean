@@ -87,6 +87,13 @@ describe('Constraint Parser', () => {
   });
 
   describe('Quantifier expressions', () => {
+    it('should keep init as a variable name', () => {
+      const result = parseConstraint('forall init in InitState: init == init');
+      expect(result.type).toBe('quantifier');
+      expect((result as any).variable).toBe('init');
+      expect((result as any).domain).toBe('InitState');
+    });
+
     it('should parse forall', () => {
       const result = parseConstraint('forall x in Type: x == x');
       expect(result.type).toBe('quantifier');

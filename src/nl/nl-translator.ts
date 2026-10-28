@@ -14,6 +14,7 @@ import { DomainDSL } from '../generator/dsl-generator';
 import { createDomainContext, generateCompactContext } from './domain-context';
 import { parseConstraint } from '../dsl/parser';
 import { defaultLexer } from '../dsl/lexer';
+import { checkText } from '../common/constraintCheck';
 
 export interface TranslationConfig {
   domainDSL: DomainDSL;
@@ -54,8 +55,14 @@ export interface ValidationResult {
  * The model often writes where where the body colon belongs, and leaves a
  * quantifier bare after not. Both are repaired before the text is checked.
  */
+const REPAIR_ATTEMPTS = 2;
+
 export function normalizeGeneratedConstraint(source: string): string {
   const lines = String(source || '').split('\n').map(line => line
+    .replace(
+      /^(\s*constraint\s+[A-Za-z_]\w*)\s+(error|warning|info)\s*$/,
+      '$1 [$2]'
+    )
     .replace(
       /^(\s*(?:not\s+)?(?:forall|exists)\s+[A-Za-z_]\w*\s+in\s+[A-Za-z_]\w*)\s+where\s*$/,
       '$1:'
@@ -97,6 +104,30 @@ function leadingIndent(line: string): number {
   return match ? match[0].replace(/\t/g, '  ').length : 0;
 }
 
+function expressionOf(constraintCode: string): string {
+  const lines = String(constraintCode || '').split('\n');
+  const expr: string[] = [];
+  let started = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^constraint\s+[A-Za-z_]\w*/.test(trimmed)) {
+      started = true;
+      continue;
+    }
+    if (!trimmed || trimmed.startsWith('//')) {
+      continue;
+    }
+    if (started && /^(constraint|define|constraintset)\b/.test(trimmed)) {
+      break;
+    }
+    if (!started && /^(define|constraintset)\b/.test(trimmed)) {
+      continue;
+    }
+    expr.push(trimmed);
+  }
+  return expr.join(' ').trim();
+}
+
 /**
  * NL to Constraint Translator
  */
@@ -127,45 +158,46 @@ export class NLConstraintTranslator {
     }
 
     const context = generateCompactContext(this.domainDSL);
-    
-    const prompt = this.buildTranslationPrompt(naturalLanguage, context);
     const systemPrompt = this.buildSystemPrompt();
 
     try {
-      const rawOutput = await this.llmProvider.complete(prompt, systemPrompt);
-      const parsed = this.parseTranslationResponse(rawOutput);
-      if (parsed.constraint) {
-        parsed.constraint = normalizeGeneratedConstraint(parsed.constraint);
-      }
-      
-      if (!parsed.constraint) {
-        return {
-          success: false,
-          validationErrors: ['Failed to extract constraint from LLM response'],
-          rawLLMOutput: rawOutput
-        };
-      }
+      let prompt = this.buildTranslationPrompt(naturalLanguage, context);
+      let attempt = 0;
 
-      const validation = this.validateConstraint(parsed.constraint);
-      
-      if (!validation.valid) {
-        return {
-          success: false,
-          constraint: parsed.constraint,
-          constraintName: parsed.constraintName,
-          severity: parsed.severity,
-          validationErrors: validation.errors,
-          rawLLMOutput: rawOutput
-        };
+      while (attempt <= REPAIR_ATTEMPTS) {
+        const rawOutput = await this.llmProvider.complete(prompt, systemPrompt);
+        const parsed = this.parseTranslationResponse(rawOutput);
+        if (parsed.constraint) {
+          parsed.constraint = normalizeGeneratedConstraint(parsed.constraint);
+        }
+
+        if (!parsed.constraint) {
+          attempt += 1;
+          prompt = this.buildRepairPrompt(naturalLanguage, rawOutput, [
+            'No constraint block was found. Return one constraint inside a constraint code block.'
+          ]);
+          continue;
+        }
+
+        const validation = this.validateConstraint(parsed.constraint);
+        if (validation.valid) {
+          return {
+            success: true,
+            constraint: parsed.constraint,
+            constraintName: parsed.constraintName,
+            severity: parsed.severity,
+            explanation: parsed.explanation,
+            rawLLMOutput: rawOutput
+          };
+        }
+
+        attempt += 1;
+        prompt = this.buildRepairPrompt(naturalLanguage, parsed.constraint, validation.errors);
       }
 
       return {
-        success: true,
-        constraint: parsed.constraint,
-        constraintName: parsed.constraintName,
-        severity: parsed.severity,
-        explanation: parsed.explanation,
-        rawLLMOutput: rawOutput
+        success: false,
+        validationErrors: ['That could not be written as a constraint. Try describing it another way.']
       };
 
     } catch (error) {
@@ -278,60 +310,46 @@ export class NLConstraintTranslator {
   validateConstraint(constraintCode: string): ValidationResult {
     const errors: string[] = [];
     const warnings: string[] = [];
-
-    const expressionMatch = constraintCode.match(/constraint\s+\w+\s*\[(?:error|warning|info)\][^]*$/m);
-    let expression = constraintCode;
-    
-    if (expressionMatch) {
-      const lines = constraintCode.split('\n');
-      let foundConstraint = false;
-      const exprLines: string[] = [];
-      
-      for (const line of lines) {
-        if (line.trim().startsWith('constraint ')) {
-          foundConstraint = true;
-          continue;
-        }
-        if (foundConstraint && !line.trim().startsWith('//')) {
-          exprLines.push(line.trim());
-        }
-      }
-      expression = exprLines.join(' ').trim();
-    }
+    const expression = expressionOf(constraintCode);
 
     if (!expression) {
       errors.push('No constraint expression found');
       return { valid: false, errors, warnings };
     }
 
-    try {
-      const lexResult = defaultLexer.tokenize(expression);
-      
-      if (lexResult.errors.length > 0) {
-        for (const error of lexResult.errors) {
-          errors.push(`Lexer error: ${error.message}`);
-        }
-        return { valid: false, errors, warnings };
+    const lexResult = defaultLexer.tokenize(expression);
+    if (lexResult.errors.length > 0) {
+      for (const error of lexResult.errors) {
+        errors.push(`Lexer error: ${error.message}`);
       }
+      return { valid: false, errors, warnings };
+    }
 
-      for (const token of lexResult.tokens) {
-        if (token.tokenType.name === 'Identifier') {
-          const name = token.image;
-          if (name[0] === name[0].toUpperCase() && !this.domainDSL.keywords.includes(name)) {
-            const suggestion = this.findSimilarType(name);
-            if (suggestion) {
-              errors.push(`Unknown type '${name}'. Did you mean '${suggestion}'?`);
-            } else {
-              errors.push(`Unknown type '${name}'. Available types: ${this.domainDSL.keywords.join(', ')}`);
-            }
+    for (const token of lexResult.tokens) {
+      if (token.tokenType.name === 'Identifier') {
+        const name = token.image;
+        if (name[0] === name[0].toUpperCase() && !this.domainDSL.keywords.includes(name)) {
+          const suggestion = this.findSimilarType(name);
+          if (suggestion) {
+            errors.push(`Unknown type '${name}'. Did you mean '${suggestion}'?`);
+          } else {
+            errors.push(`Unknown type '${name}'. Available types: ${this.domainDSL.keywords.join(', ')}`);
           }
         }
       }
+    }
 
-      parseConstraint(expression);
-
-    } catch (e) {
-      errors.push(`Parse error: ${(e as Error).message}`);
+    if (/^\s*constraint\s+/m.test(constraintCode)) {
+      const dialect = checkText(constraintCode);
+      if (!dialect.ok) {
+        dialect.messages.forEach(message => errors.push(message.message));
+      }
+    } else {
+      try {
+        parseConstraint(expression);
+      } catch (e) {
+        errors.push(`Parse error: ${(e as Error).message}`);
+      }
     }
 
     return {
@@ -381,6 +399,23 @@ constraint <Name> [severity]
 \`\`\`
 
 Followed by a brief explanation in natural language.`;
+  }
+
+  private buildRepairPrompt(description: string, attempt: string, errors: string[]): string {
+    const problems = errors.length ? errors.map(error => `- ${error}`).join('\n') : '- The constraint does not parse.';
+    return `${generateCompactContext(this.domainDSL)}
+
+The constraint for this description does not parse yet:
+
+"${description}"
+
+Attempt:
+${attempt}
+
+Problems:
+${problems}
+
+Return one corrected constraint block and nothing else. The header is \`constraint Name [error]\`, \`[warning]\`, or \`[info]\`. A quantifier body starts with a colon. Put parentheses around a quantifier used as an expression. Use only types from the domain.`;
   }
 
   private buildTranslationPrompt(nl: string, context: string): string {

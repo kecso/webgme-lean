@@ -20,6 +20,17 @@ define([
     var WIDGET_CLASS = 'lean-editor';
     var LANGUAGE_ID = 'webgme-constraint';
 
+    function actionButton(className, label) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = className;
+        button.textContent = label;
+        button.addEventListener('mousedown', function (event) {
+            event.preventDefault();
+        });
+        return button;
+    }
+
     function LeanEditorWidget(logger, container, client) {
         this._logger = logger.fork('Widget');
         this._el = container;
@@ -893,10 +904,7 @@ define([
             input.placeholder = 'There is exactly one Init.';
             var actions = document.createElement('div');
             actions.className = 'lean-nl-actions';
-            var generate = document.createElement('button');
-            generate.type = 'button';
-            generate.className = 'btn btn-xs btn-primary';
-            generate.textContent = 'Generate';
+            var generate = actionButton('btn btn-xs btn-primary', 'Generate');
             var status = document.createElement('div');
             actions.appendChild(generate);
             body.appendChild(hint);
@@ -920,12 +928,14 @@ define([
                     types: vocab.types
                 }).then(function (result) {
                     status.innerHTML = '';
-                    if (!result.body || !result.body.constraint) {
+                    var accepted = result.body && result.body.success !== false && result.body.constraint &&
+                        !(result.body.validationErrors && result.body.validationErrors.length);
+                    if (!accepted) {
                         var error = document.createElement('div');
                         error.className = 'lean-nl-error';
-                        error.textContent = (result.body && (result.body.error ||
-                            (result.body.validationErrors || []).join(' '))) ||
-                            'No constraint was returned.';
+                        error.textContent = (result.body && result.body.validationErrors &&
+                            result.body.validationErrors[0]) ||
+                            'That could not be written as a constraint. Try describing it another way.';
                         status.appendChild(error);
                         return;
                     }
@@ -933,10 +943,7 @@ define([
                     preview.textContent = result.body.constraint;
                     var note = document.createElement('p');
                     note.textContent = result.body.explanation || '';
-                    var insert = document.createElement('button');
-                    insert.type = 'button';
-                    insert.className = 'btn btn-xs btn-success';
-                    insert.textContent = 'Insert';
+                    var insert = actionButton('btn btn-xs btn-success', 'Insert');
                     insert.addEventListener('click', function () {
                         self._insertText(result.body.constraint);
                         self._hideDialog();
@@ -944,12 +951,6 @@ define([
                     status.appendChild(preview);
                     if (note.textContent) {
                         status.appendChild(note);
-                    }
-                    if (result.body.validationErrors && result.body.validationErrors.length) {
-                        var warn = document.createElement('div');
-                        warn.className = 'lean-nl-error';
-                        warn.textContent = result.body.validationErrors.join(' ');
-                        status.appendChild(warn);
                     }
                     status.appendChild(insert);
                 }).catch(function (err) {
@@ -963,44 +964,29 @@ define([
         });
     };
 
-    LeanEditorWidget.prototype.openValidateDialog = function (options) {
+    LeanEditorWidget.prototype.showCheckResult = function (title, pending) {
         var self = this;
-
-        this._showDialog('Validate', function (body) {
-            var intro = document.createElement('p');
-            var actions;
-            var button;
-            var status;
-
-            intro.textContent = 'Check that these constraints parse and that their concepts, attributes, pointers, and sets are in the META.';
-            body.appendChild(intro);
-
-            actions = document.createElement('div');
-            actions.className = 'lean-nl-actions';
-            button = document.createElement('button');
-            button.type = 'button';
-            button.className = 'btn btn-primary';
-            button.textContent = 'Validate';
-            status = document.createElement('div');
-            status.className = 'lean-nl-result';
-            actions.appendChild(button);
-            body.appendChild(actions);
-            body.appendChild(status);
-
-            button.addEventListener('click', function () {
-                status.textContent = 'Checking…';
-                button.disabled = true;
-                options.run().then(function (result) {
-                    button.disabled = false;
-                    self._renderValidation(status, result);
-                }).catch(function (err) {
-                    button.disabled = false;
-                    status.innerHTML = '';
-                    var error = document.createElement('p');
-                    error.className = 'lean-nl-error';
-                    error.textContent = err.message || String(err);
-                    status.appendChild(error);
-                });
+        var token = {};
+        this._checkToken = token;
+        return pending.then(function (result) {
+            if (self._checkToken !== token) {
+                return;
+            }
+            self._showDialog(title, function (body) {
+                var status = document.createElement('div');
+                status.className = 'lean-nl-result';
+                body.appendChild(status);
+                self._renderValidation(status, result);
+            });
+        }).catch(function (err) {
+            if (self._checkToken !== token) {
+                return;
+            }
+            self._showDialog(title, function (body) {
+                var error = document.createElement('p');
+                error.className = 'lean-nl-error';
+                error.textContent = err.message || String(err);
+                body.appendChild(error);
             });
         });
     };
@@ -1008,7 +994,6 @@ define([
     LeanEditorWidget.prototype.openLeanDialog = function (options) {
         var self = this;
         var scope = options.scope || 'model';
-        var wholeProject = scope === 'ROOT';
 
         this._showDialog('Check with Lean', function (body) {
             var intro = document.createElement('p');
@@ -1017,53 +1002,44 @@ define([
             var button;
             var status;
 
-            intro.textContent = wholeProject
-                ? 'Run Lean on the project root.'
-                : options.instances.length
-                    ? 'Choose a ' + scope + ' to check with Lean.'
-                    : 'There is no ' + scope + ' in the project.';
+            intro.textContent = options.instances.length
+                ? 'Choose a ' + scope + ' to check with Lean.'
+                : 'There is no ' + scope + ' in the project.';
             body.appendChild(intro);
-            if (!wholeProject && !options.instances.length) {
+            if (!options.instances.length) {
                 return;
             }
 
             actions = document.createElement('div');
             actions.className = 'lean-nl-actions';
-            button = document.createElement('button');
-            button.type = 'button';
-            button.className = 'btn btn-primary';
-            button.textContent = 'Run Lean';
+            button = actionButton('btn btn-primary', 'Run Lean');
             status = document.createElement('div');
             status.className = 'lean-nl-result';
             actions.appendChild(button);
-            if (!wholeProject) {
-                select = document.createElement('select');
-                select.className = 'form-control';
-                var placeholder = document.createElement('option');
-                placeholder.value = '';
-                placeholder.textContent = 'Choose a model';
-                select.appendChild(placeholder);
-                options.instances.forEach(function (item, index) {
-                    var option = document.createElement('option');
-                    option.value = String(index);
-                    option.textContent = item.label;
-                    option.title = item.path || item.label;
-                    select.appendChild(option);
-                });
-                body.appendChild(select);
-            }
+            select = document.createElement('select');
+            select.className = 'form-control';
+            var placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = 'Choose a model';
+            select.appendChild(placeholder);
+            options.instances.forEach(function (item, index) {
+                var option = document.createElement('option');
+                option.value = String(index);
+                option.textContent = item.label;
+                option.title = item.path || item.label;
+                select.appendChild(option);
+            });
+            body.appendChild(select);
             body.appendChild(actions);
             body.appendChild(status);
 
             button.addEventListener('click', function () {
-                var nodeId = '';
-                if (!wholeProject) {
-                    if (select.value === '') {
-                        status.textContent = 'Choose a model first.';
-                        return;
-                    }
-                    nodeId = options.instances[Number(select.value)].id;
+                var nodeId;
+                if (select.value === '') {
+                    status.textContent = 'Choose a model first.';
+                    return;
                 }
+                nodeId = options.instances[Number(select.value)].id;
                 status.textContent = 'Running Lean…';
                 button.disabled = true;
                 options.run(nodeId).then(function (result) {

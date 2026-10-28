@@ -7,32 +7,39 @@
 
 import { createToken, Lexer, TokenType } from 'chevrotain';
 
+// Identifier is created first so a keyword can prefer it when the keyword is only a prefix.
+export const Identifier = createToken({ name: 'Identifier', pattern: /[a-zA-Z_][a-zA-Z0-9_]*/ });
+
+function keyword(name: string, pattern: RegExp) {
+  return createToken({ name, pattern, longer_alt: Identifier });
+}
+
 // Keywords
-export const Forall = createToken({ name: 'Forall', pattern: /forall/ });
-export const Exists = createToken({ name: 'Exists', pattern: /exists/ });
-export const In = createToken({ name: 'In', pattern: /in/ });
-export const Where = createToken({ name: 'Where', pattern: /where/ });
-export const Implies = createToken({ name: 'Implies', pattern: /implies/ });
-export const And = createToken({ name: 'And', pattern: /and/ });
-export const Or = createToken({ name: 'Or', pattern: /or/ });
-export const Not = createToken({ name: 'Not', pattern: /not|!/ });
-export const True = createToken({ name: 'True', pattern: /true/ });
-export const False = createToken({ name: 'False', pattern: /false/ });
-export const Null = createToken({ name: 'Null', pattern: /null/ });
-export const IsEmpty = createToken({ name: 'IsEmpty', pattern: /isEmpty/ });
-export const Define = createToken({ name: 'Define', pattern: /define/ });
-export const Count = createToken({ name: 'Count', pattern: /count/ });
-export const Sum = createToken({ name: 'Sum', pattern: /sum/ });
-export const All = createToken({ name: 'All', pattern: /all/ });
-export const Any = createToken({ name: 'Any', pattern: /any/ });
-export const Children = createToken({ name: 'Children', pattern: /children/ });
-export const Parent = createToken({ name: 'Parent', pattern: /parent/ });
-export const Siblings = createToken({ name: 'Siblings', pattern: /siblings/ });
-export const ReachableVia = createToken({ name: 'ReachableVia', pattern: /reachableVia/ });
-export const ReachableBy = createToken({ name: 'ReachableBy', pattern: /reachableBy/ });
-export const Connected = createToken({ name: 'Connected', pattern: /connected/ });
-export const PointingTo = createToken({ name: 'PointingTo', pattern: /pointingTo/ });
-export const Unique = createToken({ name: 'Unique', pattern: /unique/ });
+export const Forall = keyword('Forall', /forall/);
+export const Exists = keyword('Exists', /exists/);
+export const In = keyword('In', /in/);
+export const Where = keyword('Where', /where/);
+export const Implies = keyword('Implies', /implies/);
+export const And = keyword('And', /and/);
+export const Or = keyword('Or', /or/);
+export const Not = keyword('Not', /not|!/);
+export const True = keyword('True', /true/);
+export const False = keyword('False', /false/);
+export const Null = keyword('Null', /null/);
+export const IsEmpty = keyword('IsEmpty', /isEmpty/);
+export const Define = keyword('Define', /define/);
+export const Count = keyword('Count', /count/);
+export const Sum = keyword('Sum', /sum/);
+export const All = keyword('All', /all/);
+export const Any = keyword('Any', /any/);
+export const Children = keyword('Children', /children/);
+export const Parent = keyword('Parent', /parent/);
+export const Siblings = keyword('Siblings', /siblings/);
+export const ReachableVia = keyword('ReachableVia', /reachableVia/);
+export const ReachableBy = keyword('ReachableBy', /reachableBy/);
+export const Connected = keyword('Connected', /connected/);
+export const PointingTo = keyword('PointingTo', /pointingTo/);
+export const Unique = keyword('Unique', /unique/);
 
 // Operators
 export const Equals = createToken({ name: 'Equals', pattern: /==/ });
@@ -66,9 +73,6 @@ export const StringLiteral = createToken({
   name: 'StringLiteral', 
   pattern: /"[^"]*"|'[^']*'/ 
 });
-
-// Identifier - must come after keywords
-export const Identifier = createToken({ name: 'Identifier', pattern: /[a-zA-Z_][a-zA-Z0-9_]*/ });
 
 // Whitespace and comments
 export const WhiteSpace = createToken({
@@ -160,8 +164,8 @@ const baseTokens: TokenType[] = [
  * Create a lexer with domain-specific keywords added
  */
 export function createDomainLexer(domainKeywords: string[]): Lexer {
-  const domainTokens: TokenType[] = domainKeywords.map(keyword =>
-    createToken({ name: `Domain_${keyword}`, pattern: new RegExp(keyword) })
+  const domainTokens: TokenType[] = domainKeywords.map(name =>
+    createToken({ name: `Domain_${name}`, pattern: new RegExp(name), longer_alt: Identifier })
   );
   
   // Insert domain tokens before Identifier

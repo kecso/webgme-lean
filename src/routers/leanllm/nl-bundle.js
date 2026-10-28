@@ -1,8 +1,13 @@
 "use strict";
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __commonJS = (cb, mod) => function __require() {
+  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+};
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
@@ -15,7 +20,419 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/common/constraintCheck.js
+var require_constraintCheck = __commonJS({
+  "src/common/constraintCheck.js"(exports2, module2) {
+    "use strict";
+    var KEYWORDS = {
+      constraintset: true,
+      constraint: true,
+      for: true,
+      define: true,
+      forall: true,
+      exists: true,
+      in: true,
+      where: true,
+      and: true,
+      or: true,
+      not: true,
+      implies: true,
+      true: true,
+      false: true,
+      null: true
+    };
+    var TWO = {
+      "->": true,
+      "==": true,
+      "!=": true,
+      "<=": true,
+      ">=": true,
+      "&&": true,
+      "||": true,
+      "=>": true
+    };
+    var DEFAULT_SCOPE = "ROOT";
+    var DEFAULT_SET_NAME = "Constraints";
+    var HEADER_NAMED = /constraintset\s+([A-Za-z_]\w*)\s+for\s+[A-Za-z_]\w*/;
+    var HEADER_AT_START = /^[ \t]*constraintset\s+[A-Za-z_]\w*\s+for\s+[A-Za-z_]\w*[ \t]*\r?\n?/;
+    var HEADER_ANYWHERE = /[ \t]*constraintset\s+[A-Za-z_]\w*\s+for\s+[A-Za-z_]\w*[ \t]*\r?\n?/;
+    function scopeInText(text) {
+      var match = String(text || "").match(/^\s*constraintset\s+[A-Za-z_]\w*\s+for\s+([A-Za-z_]\w*)/m);
+      return match ? match[1] : "";
+    }
+    function ensureHeader(text, scope) {
+      var source = String(text || "").replace(/^\uFEFF/, "");
+      var found = source.match(HEADER_NAMED);
+      var useScope = scope || scopeInText(source) || DEFAULT_SCOPE;
+      var name = found ? found[1] : DEFAULT_SET_NAME;
+      var line = "constraintset " + name + " for " + useScope;
+      var body = source;
+      if (HEADER_AT_START.test(source)) {
+        body = source.replace(HEADER_AT_START, "");
+      } else if (HEADER_ANYWHERE.test(source)) {
+        body = source.replace(HEADER_ANYWHERE, "");
+      }
+      if (body === "") {
+        return line + "\n";
+      }
+      if (body.charAt(0) === "\n" || body.charAt(0) === "\r") {
+        return line + body;
+      }
+      return line + "\n" + body;
+    }
+    function applyScope(text, scope) {
+      return ensureHeader(text, scope || scopeInText(text) || DEFAULT_SCOPE);
+    }
+    function readStored(raw) {
+      if (typeof raw !== "string" || raw === "") {
+        return { text: "", scope: "" };
+      }
+      var trimmed = raw.trim();
+      if (trimmed.charAt(0) === "{") {
+        try {
+          var parsed = JSON.parse(trimmed);
+          if (parsed && typeof parsed === "object") {
+            if (typeof parsed.text === "string" || typeof parsed.scope === "string") {
+              var text = typeof parsed.text === "string" ? parsed.text : "";
+              var scope = typeof parsed.scope === "string" && parsed.scope ? parsed.scope : scopeInText(text);
+              return { text, scope };
+            }
+            if (Object.prototype.hasOwnProperty.call(parsed, "fix") || Object.prototype.hasOwnProperty.call(parsed, "user")) {
+              return { text: "", scope: "" };
+            }
+          }
+        } catch (err) {
+          return { text: raw, scope: scopeInText(raw) };
+        }
+      }
+      return { text: raw, scope: scopeInText(raw) };
+    }
+    function writeStored(text, scope) {
+      return JSON.stringify({
+        text: text || "",
+        scope: scope || ""
+      });
+    }
+    function fail(at, message) {
+      var error = new Error(message);
+      error.at = at;
+      return error;
+    }
+    function tokenize(text) {
+      var tokens = [];
+      var i = 0;
+      var n = text.length;
+      while (i < n) {
+        var c = text.charAt(i);
+        if (c === " " || c === "	" || c === "\n" || c === "\r") {
+          i += 1;
+          continue;
+        }
+        if (c === "/" && text.charAt(i + 1) === "/") {
+          while (i < n && text.charAt(i) !== "\n") {
+            i += 1;
+          }
+          continue;
+        }
+        if (c === '"') {
+          var j = i + 1;
+          var str = "";
+          while (j < n && text.charAt(j) !== '"') {
+            if (text.charAt(j) === "\\" && j + 1 < n) {
+              j += 1;
+              str += text.charAt(j);
+            } else {
+              str += text.charAt(j);
+            }
+            j += 1;
+          }
+          if (j >= n) {
+            throw fail(i, "A string is missing its closing quote.");
+          }
+          tokens.push({ k: "str", v: str, at: i });
+          i = j + 1;
+          continue;
+        }
+        if (/[0-9]/.test(c)) {
+          j = i + 1;
+          while (j < n && /[0-9.]/.test(text.charAt(j))) {
+            j += 1;
+          }
+          tokens.push({ k: "num", v: Number(text.slice(i, j)), at: i });
+          i = j;
+          continue;
+        }
+        if (/[A-Za-z_]/.test(c)) {
+          j = i + 1;
+          while (j < n && /[A-Za-z0-9_]/.test(text.charAt(j))) {
+            j += 1;
+          }
+          var word = text.slice(i, j);
+          tokens.push({ k: KEYWORDS[word] ? word : "ident", v: word, at: i });
+          i = j;
+          continue;
+        }
+        var two = text.slice(i, i + 2);
+        if (TWO[two]) {
+          tokens.push({ k: two, v: two, at: i });
+          i += 2;
+          continue;
+        }
+        if ("()[],.:!=<>".indexOf(c) !== -1) {
+          tokens.push({ k: c, v: c, at: i });
+          i += 1;
+          continue;
+        }
+        throw fail(i, 'Unexpected character "' + c + '".');
+      }
+      tokens.push({ k: "eof", v: "", at: n });
+      return tokens;
+    }
+    function Parser2(tokens) {
+      this.tokens = tokens;
+      this.pos = 0;
+    }
+    Parser2.prototype.peek = function() {
+      return this.tokens[this.pos];
+    };
+    Parser2.prototype.at = function(kind) {
+      return this.peek().k === kind;
+    };
+    Parser2.prototype.next = function() {
+      return this.tokens[this.pos++];
+    };
+    Parser2.prototype.expect = function(kind) {
+      if (!this.at(kind)) {
+        var found = this.peek();
+        throw fail(found.at, "Expected " + kind + ' but found "' + (found.v || found.k) + '".');
+      }
+      return this.next();
+    };
+    Parser2.prototype.parseDocument = function() {
+      var defines = [];
+      var constraints = [];
+      var scope = "";
+      while (!this.at("eof")) {
+        if (this.at("constraintset")) {
+          this.next();
+          this.expect("ident");
+          this.expect("for");
+          scope = this.expect("ident").v;
+        } else if (this.at("define")) {
+          defines.push(this.parseDefine());
+        } else if (this.at("constraint")) {
+          constraints.push(this.parseConstraint());
+        } else {
+          var found = this.peek();
+          throw fail(found.at, 'Expected a constraint, definition, or constraint set, found "' + (found.v || found.k) + '".');
+        }
+      }
+      return { scope, defines, constraints };
+    };
+    Parser2.prototype.parseDefine = function() {
+      this.expect("define");
+      var name = this.expect("ident").v;
+      var params = [];
+      this.expect("(");
+      if (!this.at(")")) {
+        params.push(this.expect("ident").v);
+        while (this.at(",")) {
+          this.next();
+          params.push(this.expect("ident").v);
+        }
+      }
+      this.expect(")");
+      this.expect("=");
+      return { name, params, body: this.parseExpr() };
+    };
+    Parser2.prototype.parseConstraint = function() {
+      this.expect("constraint");
+      var name = this.expect("ident").v;
+      var severity = "error";
+      if (this.at("[")) {
+        this.next();
+        severity = this.expect("ident").v;
+        this.expect("]");
+        if (severity !== "error" && severity !== "warning" && severity !== "info") {
+          severity = "error";
+        }
+      }
+      return { name, severity, body: this.parseExpr() };
+    };
+    Parser2.prototype.parseExpr = function() {
+      if (this.at("forall") || this.at("exists")) {
+        return this.parseQuantifier();
+      }
+      return this.parseImplies();
+    };
+    Parser2.prototype.parseQuantifier = function() {
+      var quantifier = this.next().k;
+      var variable = this.expect("ident").v;
+      this.expect("in");
+      var domain = this.expect("ident").v;
+      var condition = null;
+      if (this.at("where")) {
+        this.next();
+        condition = this.parseImplies();
+      }
+      this.expect(":");
+      return {
+        k: "quant",
+        q: quantifier,
+        variable,
+        domain,
+        condition,
+        body: this.parseExpr()
+      };
+    };
+    Parser2.prototype.parseImplies = function() {
+      var left = this.parseOr();
+      if (this.at("implies") || this.at("=>")) {
+        this.next();
+        return { k: "bin", op: "implies", left, right: this.parseImplies() };
+      }
+      return left;
+    };
+    Parser2.prototype.parseOr = function() {
+      var left = this.parseAnd();
+      while (this.at("or") || this.at("||")) {
+        this.next();
+        left = { k: "bin", op: "or", left, right: this.parseAnd() };
+      }
+      return left;
+    };
+    Parser2.prototype.parseAnd = function() {
+      var left = this.parseNot();
+      while (this.at("and") || this.at("&&")) {
+        this.next();
+        left = { k: "bin", op: "and", left, right: this.parseNot() };
+      }
+      return left;
+    };
+    Parser2.prototype.parseNot = function() {
+      if (this.at("not") || this.at("!")) {
+        this.next();
+        return { k: "not", expr: this.parseNot() };
+      }
+      return this.parseComparison();
+    };
+    Parser2.prototype.parseComparison = function() {
+      var left = this.parsePrimary();
+      var ops = { "==": true, "!=": true, "<": true, ">": true, "<=": true, ">=": true, in: true };
+      while (ops[this.peek().k]) {
+        var op = this.next().k;
+        left = { k: "bin", op, left, right: this.parsePrimary() };
+      }
+      return left;
+    };
+    Parser2.prototype.parsePrimary = function() {
+      if (this.at("true") || this.at("false")) {
+        return { k: "bool", v: this.next().k === "true" };
+      }
+      if (this.at("null")) {
+        this.next();
+        return { k: "null" };
+      }
+      if (this.at("num")) {
+        return { k: "num", v: this.next().v };
+      }
+      if (this.at("str")) {
+        return { k: "str", v: this.next().v };
+      }
+      if (this.at("(")) {
+        this.next();
+        var inner = this.parseExpr();
+        this.expect(")");
+        return this.parsePostfix(inner);
+      }
+      if (this.at("ident")) {
+        var name = this.next().v;
+        if (this.at("(")) {
+          return this.parsePostfix(this.parseCall(name));
+        }
+        return this.parsePostfix({ k: "name", name });
+      }
+      var found = this.peek();
+      throw fail(found.at, 'Expected an expression but found "' + (found.v || found.k) + '".');
+    };
+    Parser2.prototype.parseCall = function(name) {
+      var args = [];
+      this.expect("(");
+      if (!this.at(")")) {
+        args.push(this.parseExpr());
+        while (this.at(",")) {
+          this.next();
+          args.push(this.parseExpr());
+        }
+      }
+      this.expect(")");
+      return { k: "call", name, args };
+    };
+    Parser2.prototype.parsePostfix = function(expr) {
+      while (this.at(".") || this.at("->") || this.at("[")) {
+        if (this.at(".")) {
+          this.next();
+          expr = { k: "attr", expr, name: this.expect("ident").v };
+        } else if (this.at("->")) {
+          this.next();
+          expr = { k: "ptr", expr, name: this.expect("ident").v };
+        } else {
+          this.next();
+          var index;
+          if (this.at("ident") && this.tokens[this.pos + 1] && this.tokens[this.pos + 1].k === "]") {
+            index = { k: "str", v: this.next().v };
+          } else {
+            index = this.parseExpr();
+          }
+          this.expect("]");
+          expr = { k: "set", expr, index };
+        }
+      }
+      return expr;
+    };
+    function parseText(text) {
+      return new Parser2(tokenize(String(text || ""))).parseDocument();
+    }
+    function checkText2(text) {
+      try {
+        parseText(text);
+      } catch (err) {
+        return {
+          ok: false,
+          messages: [{ severity: "error", message: err.message || String(err) }]
+        };
+      }
+      return { ok: true, messages: [] };
+    }
+    var api = {
+      DEFAULT_SCOPE,
+      scopeInText,
+      ensureHeader,
+      applyScope,
+      readStored,
+      writeStored,
+      parseText,
+      checkText: checkText2
+    };
+    if (typeof module2 === "object" && module2 && module2.exports) {
+      module2.exports = api;
+    } else if (typeof define === "function" && define.amd) {
+      define([], function() {
+        return api;
+      });
+    }
+  }
+});
 
 // src/routers/leanllm/nl-entry.ts
 var nl_entry_exports = {};
@@ -9511,31 +9928,35 @@ var CstParser = class extends Parser {
 };
 
 // src/dsl/lexer.ts
-var Forall = createToken({ name: "Forall", pattern: /forall/ });
-var Exists = createToken({ name: "Exists", pattern: /exists/ });
-var In = createToken({ name: "In", pattern: /in/ });
-var Where = createToken({ name: "Where", pattern: /where/ });
-var Implies = createToken({ name: "Implies", pattern: /implies/ });
-var And = createToken({ name: "And", pattern: /and/ });
-var Or = createToken({ name: "Or", pattern: /or/ });
-var Not = createToken({ name: "Not", pattern: /not|!/ });
-var True = createToken({ name: "True", pattern: /true/ });
-var False = createToken({ name: "False", pattern: /false/ });
-var Null = createToken({ name: "Null", pattern: /null/ });
-var IsEmpty = createToken({ name: "IsEmpty", pattern: /isEmpty/ });
-var Define = createToken({ name: "Define", pattern: /define/ });
-var Count = createToken({ name: "Count", pattern: /count/ });
-var Sum = createToken({ name: "Sum", pattern: /sum/ });
-var All = createToken({ name: "All", pattern: /all/ });
-var Any = createToken({ name: "Any", pattern: /any/ });
-var Children = createToken({ name: "Children", pattern: /children/ });
-var Parent = createToken({ name: "Parent", pattern: /parent/ });
-var Siblings = createToken({ name: "Siblings", pattern: /siblings/ });
-var ReachableVia = createToken({ name: "ReachableVia", pattern: /reachableVia/ });
-var ReachableBy = createToken({ name: "ReachableBy", pattern: /reachableBy/ });
-var Connected = createToken({ name: "Connected", pattern: /connected/ });
-var PointingTo = createToken({ name: "PointingTo", pattern: /pointingTo/ });
-var Unique = createToken({ name: "Unique", pattern: /unique/ });
+var Identifier = createToken({ name: "Identifier", pattern: /[a-zA-Z_][a-zA-Z0-9_]*/ });
+function keyword(name, pattern) {
+  return createToken({ name, pattern, longer_alt: Identifier });
+}
+var Forall = keyword("Forall", /forall/);
+var Exists = keyword("Exists", /exists/);
+var In = keyword("In", /in/);
+var Where = keyword("Where", /where/);
+var Implies = keyword("Implies", /implies/);
+var And = keyword("And", /and/);
+var Or = keyword("Or", /or/);
+var Not = keyword("Not", /not|!/);
+var True = keyword("True", /true/);
+var False = keyword("False", /false/);
+var Null = keyword("Null", /null/);
+var IsEmpty = keyword("IsEmpty", /isEmpty/);
+var Define = keyword("Define", /define/);
+var Count = keyword("Count", /count/);
+var Sum = keyword("Sum", /sum/);
+var All = keyword("All", /all/);
+var Any = keyword("Any", /any/);
+var Children = keyword("Children", /children/);
+var Parent = keyword("Parent", /parent/);
+var Siblings = keyword("Siblings", /siblings/);
+var ReachableVia = keyword("ReachableVia", /reachableVia/);
+var ReachableBy = keyword("ReachableBy", /reachableBy/);
+var Connected = keyword("Connected", /connected/);
+var PointingTo = keyword("PointingTo", /pointingTo/);
+var Unique = keyword("Unique", /unique/);
 var Equals = createToken({ name: "Equals", pattern: /==/ });
 var NotEquals = createToken({ name: "NotEquals", pattern: /!=/ });
 var LessOrEqual = createToken({ name: "LessOrEqual", pattern: /<=/ });
@@ -9563,7 +9984,6 @@ var StringLiteral = createToken({
   name: "StringLiteral",
   pattern: /"[^"]*"|'[^']*'/
 });
-var Identifier = createToken({ name: "Identifier", pattern: /[a-zA-Z_][a-zA-Z0-9_]*/ });
 var WhiteSpace = createToken({
   name: "WhiteSpace",
   pattern: /\s+/,
@@ -10456,8 +10876,13 @@ Use simple, direct language and concrete examples.`;
 };
 
 // src/nl/nl-translator.ts
+var import_constraintCheck = __toESM(require_constraintCheck());
+var REPAIR_ATTEMPTS = 2;
 function normalizeGeneratedConstraint(source) {
   const lines = String(source || "").split("\n").map((line) => line.replace(
+    /^(\s*constraint\s+[A-Za-z_]\w*)\s+(error|warning|info)\s*$/,
+    "$1 [$2]"
+  ).replace(
     /^(\s*(?:not\s+)?(?:forall|exists)\s+[A-Za-z_]\w*\s+in\s+[A-Za-z_]\w*)\s+where\s*$/,
     "$1:"
   ).replace(
@@ -10494,6 +10919,29 @@ function leadingIndent(line) {
   const match = /^[ \t]*/.exec(line);
   return match ? match[0].replace(/\t/g, "  ").length : 0;
 }
+function expressionOf(constraintCode) {
+  const lines = String(constraintCode || "").split("\n");
+  const expr = [];
+  let started = false;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^constraint\s+[A-Za-z_]\w*/.test(trimmed)) {
+      started = true;
+      continue;
+    }
+    if (!trimmed || trimmed.startsWith("//")) {
+      continue;
+    }
+    if (started && /^(constraint|define|constraintset)\b/.test(trimmed)) {
+      break;
+    }
+    if (!started && /^(define|constraintset)\b/.test(trimmed)) {
+      continue;
+    }
+    expr.push(trimmed);
+  }
+  return expr.join(" ").trim();
+}
 var NLConstraintTranslator = class {
   domainDSL;
   llmProvider;
@@ -10518,39 +10966,40 @@ var NLConstraintTranslator = class {
       };
     }
     const context = generateCompactContext(this.domainDSL);
-    const prompt = this.buildTranslationPrompt(naturalLanguage, context);
     const systemPrompt = this.buildSystemPrompt();
     try {
-      const rawOutput = await this.llmProvider.complete(prompt, systemPrompt);
-      const parsed = this.parseTranslationResponse(rawOutput);
-      if (parsed.constraint) {
-        parsed.constraint = normalizeGeneratedConstraint(parsed.constraint);
-      }
-      if (!parsed.constraint) {
-        return {
-          success: false,
-          validationErrors: ["Failed to extract constraint from LLM response"],
-          rawLLMOutput: rawOutput
-        };
-      }
-      const validation = this.validateConstraint(parsed.constraint);
-      if (!validation.valid) {
-        return {
-          success: false,
-          constraint: parsed.constraint,
-          constraintName: parsed.constraintName,
-          severity: parsed.severity,
-          validationErrors: validation.errors,
-          rawLLMOutput: rawOutput
-        };
+      let prompt = this.buildTranslationPrompt(naturalLanguage, context);
+      let attempt = 0;
+      while (attempt <= REPAIR_ATTEMPTS) {
+        const rawOutput = await this.llmProvider.complete(prompt, systemPrompt);
+        const parsed = this.parseTranslationResponse(rawOutput);
+        if (parsed.constraint) {
+          parsed.constraint = normalizeGeneratedConstraint(parsed.constraint);
+        }
+        if (!parsed.constraint) {
+          attempt += 1;
+          prompt = this.buildRepairPrompt(naturalLanguage, rawOutput, [
+            "No constraint block was found. Return one constraint inside a constraint code block."
+          ]);
+          continue;
+        }
+        const validation = this.validateConstraint(parsed.constraint);
+        if (validation.valid) {
+          return {
+            success: true,
+            constraint: parsed.constraint,
+            constraintName: parsed.constraintName,
+            severity: parsed.severity,
+            explanation: parsed.explanation,
+            rawLLMOutput: rawOutput
+          };
+        }
+        attempt += 1;
+        prompt = this.buildRepairPrompt(naturalLanguage, parsed.constraint, validation.errors);
       }
       return {
-        success: true,
-        constraint: parsed.constraint,
-        constraintName: parsed.constraintName,
-        severity: parsed.severity,
-        explanation: parsed.explanation,
-        rawLLMOutput: rawOutput
+        success: false,
+        validationErrors: ["That could not be written as a constraint. Try describing it another way."]
       };
     } catch (error) {
       return {
@@ -10673,51 +11122,42 @@ forall e1 in ${type} where e1.${attr} == true:
   validateConstraint(constraintCode) {
     const errors = [];
     const warnings = [];
-    const expressionMatch = constraintCode.match(/constraint\s+\w+\s*\[(?:error|warning|info)\][^]*$/m);
-    let expression = constraintCode;
-    if (expressionMatch) {
-      const lines = constraintCode.split("\n");
-      let foundConstraint = false;
-      const exprLines = [];
-      for (const line of lines) {
-        if (line.trim().startsWith("constraint ")) {
-          foundConstraint = true;
-          continue;
-        }
-        if (foundConstraint && !line.trim().startsWith("//")) {
-          exprLines.push(line.trim());
-        }
-      }
-      expression = exprLines.join(" ").trim();
-    }
+    const expression = expressionOf(constraintCode);
     if (!expression) {
       errors.push("No constraint expression found");
       return { valid: false, errors, warnings };
     }
-    try {
-      const lexResult = defaultLexer.tokenize(expression);
-      if (lexResult.errors.length > 0) {
-        for (const error of lexResult.errors) {
-          errors.push(`Lexer error: ${error.message}`);
-        }
-        return { valid: false, errors, warnings };
+    const lexResult = defaultLexer.tokenize(expression);
+    if (lexResult.errors.length > 0) {
+      for (const error of lexResult.errors) {
+        errors.push(`Lexer error: ${error.message}`);
       }
-      for (const token of lexResult.tokens) {
-        if (token.tokenType.name === "Identifier") {
-          const name = token.image;
-          if (name[0] === name[0].toUpperCase() && !this.domainDSL.keywords.includes(name)) {
-            const suggestion = this.findSimilarType(name);
-            if (suggestion) {
-              errors.push(`Unknown type '${name}'. Did you mean '${suggestion}'?`);
-            } else {
-              errors.push(`Unknown type '${name}'. Available types: ${this.domainDSL.keywords.join(", ")}`);
-            }
+      return { valid: false, errors, warnings };
+    }
+    for (const token of lexResult.tokens) {
+      if (token.tokenType.name === "Identifier") {
+        const name = token.image;
+        if (name[0] === name[0].toUpperCase() && !this.domainDSL.keywords.includes(name)) {
+          const suggestion = this.findSimilarType(name);
+          if (suggestion) {
+            errors.push(`Unknown type '${name}'. Did you mean '${suggestion}'?`);
+          } else {
+            errors.push(`Unknown type '${name}'. Available types: ${this.domainDSL.keywords.join(", ")}`);
           }
         }
       }
-      parseConstraint(expression);
-    } catch (e) {
-      errors.push(`Parse error: ${e.message}`);
+    }
+    if (/^\s*constraint\s+/m.test(constraintCode)) {
+      const dialect = (0, import_constraintCheck.checkText)(constraintCode);
+      if (!dialect.ok) {
+        dialect.messages.forEach((message) => errors.push(message.message));
+      }
+    } else {
+      try {
+        parseConstraint(expression);
+      } catch (e) {
+        errors.push(`Parse error: ${e.message}`);
+      }
     }
     return {
       valid: errors.length === 0,
@@ -10764,6 +11204,22 @@ constraint <Name> [severity]
 \`\`\`
 
 Followed by a brief explanation in natural language.`;
+  }
+  buildRepairPrompt(description, attempt, errors) {
+    const problems = errors.length ? errors.map((error) => `- ${error}`).join("\n") : "- The constraint does not parse.";
+    return `${generateCompactContext(this.domainDSL)}
+
+The constraint for this description does not parse yet:
+
+"${description}"
+
+Attempt:
+${attempt}
+
+Problems:
+${problems}
+
+Return one corrected constraint block and nothing else. The header is \`constraint Name [error]\`, \`[warning]\`, or \`[info]\`. A quantifier body starts with a colon. Put parentheses around a quantifier used as an expression. Use only types from the domain.`;
   }
   buildTranslationPrompt(nl, context) {
     let prompt = `${context}

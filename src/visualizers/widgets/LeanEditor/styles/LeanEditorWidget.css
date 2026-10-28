@@ -45,6 +45,39 @@
     box-shadow: inset 3px 0 0 #4fc3f7;
 }
 
+a.btn.lean-quiet-btn:focus,
+a.btn.lean-quiet-btn:active,
+a.btn.lean-quiet-btn.active,
+.open > a.btn.lean-quiet-btn {
+    outline: none;
+    box-shadow: none;
+}
+
+.lean-nl-dialog button:focus,
+.lean-nl-dialog button:active,
+.lean-nl-dialog .btn:focus,
+.lean-nl-dialog .btn:active,
+.lean-nl-dialog .btn.active,
+.lean-nl-dialog .btn.active:focus,
+.lean-nl-dialog:focus {
+    outline: none;
+    box-shadow: none;
+}
+
+.lean-nl-dialog .btn-primary:focus,
+.lean-nl-dialog .btn-primary:active,
+.lean-nl-dialog .btn-primary.active {
+    background-color: #337ab7;
+    border-color: #2e6da4;
+}
+
+.lean-nl-dialog .btn-success:focus,
+.lean-nl-dialog .btn-success:active,
+.lean-nl-dialog .btn-success.active {
+    background-color: #5cb85c;
+    border-color: #4cae4c;
+}
+
 .lean-nl-dialog .modal-body {
     font-size: 13px;
     line-height: 1.45;
