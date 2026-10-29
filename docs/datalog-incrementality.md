@@ -33,6 +33,78 @@ That path is for **audits, CI, and formal guarantees**. Domain compilation reuse
 stable. It does not claim edit-time delta performance on tens of thousands of
 objects.
 
+## Thought experiment: long-running Lean + model commands
+
+Lean 4 can run a real `IO` program (`lean --run` / Lake exe) that loops on
+commands. For the statechart example, that need not flatten to FORMULA facts:
+
+```lean
+structure Live where
+  model : StateChart
+  -- optional indexes you choose to maintain
+
+def ExactlyOneInit (m : StateChart) : Bool := ...
+def UniqueStateNames (m : StateChart) : Bool := ...
+
+partial def loop (s : IO.Ref Live) : IO Unit := do
+  let cmd ← (← IO.getStdin).getLine
+  match parse cmd with
+  | .addState name =>
+      s.modify fun L => { L with model := insertState L.model name }
+      let m := (← s.get).model
+      -- runtime evaluation of the same Bool functions the theorems talk about
+      IO.println s!"ExactlyOneInit={ExactlyOneInit m} UniqueStateNames={UniqueStateNames m}"
+  | .addTransition src dst =>
+      ...
+  | .audit =>
+      -- optional: emit a Check.lean snapshot and ask the kernel for rfl proofs
+      pure ()
+  loop s
+```
+
+### What this would and would not buy
+
+| Layer | Meaning |
+| --- | --- |
+| Process stays up | No repeated `lake env lean` startup; Domain already loaded/native-compiled. |
+| Model as a runtime value | Edits update `StateChart` in memory; no regenerating thousands of `def` lines. |
+| “Re-check theorems” in practice | Usually **re-evaluate** the `Bool` functions (`ExactlyOneInit m`), not re-add kernel `theorem`s each keystroke. Kernel `rfl` remains for on-demand audit. |
+| Automatic O(delta) | **No.** Calling `UniqueStateNames m` after each edit still walks whatever that function quantifies over, unless *you* write incremental/indexed helpers. |
+
+So this is worth considering as “Lean as a live checker service,” not as free
+differential dataflow. True O(edit) still needs indexes or a DDlog-style
+maintainer behind those functions.
+
+### Rough performance vs today’s CheckWithLean
+
+Today (per check): generate source → (maybe) rebuild Domain → new Lean process →
+elaborate every node `def` → reduce every `… := rfl`. On the small Counter
+example that is already on the order of **~0.3–1 s** wall time dominated by
+process/elaborate overhead; cost grows badly with node count because elaboration
+is O(|model|) text and terms every time.
+
+Live Lean service, **full re-eval of `Model → Bool` after each edit**:
+
+- Save most of startup + re-elaboration (often the majority of current cost on
+  medium models) → easy to imagine **~10×–100×** lower latency for “check again
+  after a small edit” when constraints are cheap.
+- Still pay full constraint complexity each time (e.g. naïve unique-names
+  O(n²), reachability O(n·e) or similar). At **tens of thousands** of nodes,
+  that alone can be tens of ms to seconds depending on the constraint set —
+  better than re-elaborating 10k defs, still not “instant for free.”
+
+Live Lean + **indexed/delta-aware** helpers (or DDlog beside Lean):
+
+- Local pointer/attribute guards: roughly **µs–ms** per edit.
+- Counts: **O(1)** updates.
+- Reachability / heavy joins: same class as Differential-FORMULA (work proportional
+  to affected derived facts), which is the large-model story.
+
+Numbers are order-of-magnitude thought-experiment bounds, not measurements on a
+prototype. The architectural point: long-running Lean removes the compile/elaborate
+tax; it does not by itself remove whole-model evaluation unless the functions (or
+an engine behind them) are incremental.
+
 ## Where general incrementality lives
 
 The Differential-FORMULA line already solved “arbitrary stratified rules + model
