@@ -185,23 +185,6 @@ describe('leanCheck', function () {
         assert.ok(program.modelModule.indexOf('def ExactlyOne (checked : Box)') === -1);
     });
 
-    it('can omit constraint theorems that the incremental plan reused', function () {
-        var program = leanCheck.buildProgram({
-            domainSource: domain,
-            scopeType: 'Box',
-            rootId: '/box',
-            nodes: box(1),
-            text: text,
-            types: types,
-            onlyProve: [],
-            metaNodes: []
-        });
-        assert.strictEqual(program.ok, true, program.error);
-        assert.ok(program.domainModule.indexOf('def ExactlyOne') !== -1);
-        assert.ok(program.modelModule.indexOf('theorem ExactlyOne_holds') === -1);
-        assert.ok(program.modelModule.indexOf('theorem _Box_child_type_holds') === -1);
-    });
-
     it('keeps an outer quantifier variable visible inside a nested one', function () {
         var program = leanCheck.buildProgram({
             domainSource: domain,

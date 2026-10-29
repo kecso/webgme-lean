@@ -669,22 +669,13 @@
         var types = options && options.types || {};
         var rootId = options && options.rootId;
         var domainImport = options && options.domainImport || 'Generated.Domain';
-        var onlyProve = options && options.onlyProve;
-        var metaNodes = options && options.metaNodes;
         var namespace = (domainSource.match(/^namespace\s+(\S+)/m) || [])[1] || 'Domain';
         var parsed;
         var modelBody = [];
         var constraintDefs = [];
         var theorems = [];
-        var proveSet = null;
         var env;
         var monolithic;
-        if (Array.isArray(onlyProve)) {
-            proveSet = {};
-            onlyProve.forEach(function (name) {
-                proveSet[name] = true;
-            });
-        }
 
         if (!scopeType || !types[scopeType]) {
             return fail('Lean has no structure for ' + (scopeType || 'the model') + '.');
@@ -722,13 +713,11 @@
                     (binders ? ' ' + binders : '') + ' : Bool :=');
                 constraintDefs.push('  ' + expr);
                 constraintDefs.push('');
-                if (!proveSet || proveSet[constraint.name]) {
-                    theorems.push('theorem ' + leanIdent(constraint.name) + '_holds : ' +
-                        leanIdent(constraint.name) + ' checkedModel = true := rfl');
-                    theorems.push('');
-                }
+                theorems.push('theorem ' + leanIdent(constraint.name) + '_holds : ' +
+                    leanIdent(constraint.name) + ' checkedModel = true := rfl');
+                theorems.push('');
             });
-            metaTheorems(domainSource, metaNodes || nodes, rootId).forEach(function (line) {
+            metaTheorems(domainSource, nodes, rootId).forEach(function (line) {
                 theorems.push(line);
             });
         } catch (err) {
