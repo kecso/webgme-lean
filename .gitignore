@@ -8,6 +8,7 @@ generated/
 # Lean build
 lean/.lake/
 lean/build/
+lean/Generated/
 
 # IDE
 .idea/

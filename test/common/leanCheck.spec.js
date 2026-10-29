@@ -174,6 +174,15 @@ describe('leanCheck', function () {
         assert.ok(program.source.indexOf('theorem _Box_Item_child_cardinality_holds') !== -1);
         assert.ok(program.source.indexOf('theorem _Box_child_type_holds') !== -1);
         assert.ok(program.source.trim().endsWith('end Demo'));
+        assert.ok(/def ExactlyOne \(checked : Box\)(?: \[\_Contained Box Item\])? : Bool :=/
+            .test(program.domainModule));
+        assert.ok(program.domainModule.indexOf('[_Contained Box Item]') !== -1);
+        assert.ok(program.domainModule.indexOf('theorem ExactlyOne_holds') === -1);
+        assert.ok(program.domainModule.trim().endsWith('end Demo'));
+        assert.ok(program.modelModule.indexOf('import Generated.Domain') === 0);
+        assert.ok(program.modelModule.indexOf('def checkedModel : Box :=') !== -1);
+        assert.ok(program.modelModule.indexOf('theorem ExactlyOne_holds') !== -1);
+        assert.ok(program.modelModule.indexOf('def ExactlyOne (checked : Box)') === -1);
     });
 
     it('keeps an outer quantifier variable visible inside a nested one', function () {
@@ -301,4 +310,56 @@ describe('leanCheck', function () {
             assert.match(result.output, /ExactlyOne_holds|rfl/);
         });
     });
+
+    it('reuses a compiled Domain.olean when only the instance changes', function () {
+        var leanDir = path.join(__dirname, '../../lean');
+        var generatedDir = path.join(leanDir, 'Generated');
+        var domainPath = path.join(generatedDir, 'Domain.lean');
+        var checkPath = path.join(generatedDir, 'Check.lean');
+        var pass = programFor(1);
+        var fail = programFor(2);
+        if (!fs.existsSync(path.join(leanDir, 'lean-toolchain'))) {
+            this.skip();
+        }
+        assert.strictEqual(pass.ok, true, pass.error);
+        assert.strictEqual(fail.ok, true, fail.error);
+        assert.strictEqual(pass.domainModule, fail.domainModule);
+        fs.mkdirSync(generatedDir, {recursive: true});
+        fs.writeFileSync(domainPath, pass.domainModule);
+        return runCommand(['lake', 'build', 'Generated.Domain'], leanDir).then(function (build) {
+            var olean = path.join(leanDir, '.lake/build/lib/Generated/Domain.olean');
+            var firstMtime;
+            assert.strictEqual(build.code, 0, build.output);
+            assert.ok(fs.existsSync(olean), 'Domain.olean should exist after the first build');
+            firstMtime = fs.statSync(olean).mtimeMs;
+            fs.writeFileSync(checkPath, pass.modelModule);
+            return runCommand(['lake', 'env', 'lean', checkPath], leanDir).then(function (first) {
+                assert.strictEqual(first.code, 0, first.output);
+                return runCommand(['lake', 'build', 'Generated.Domain'], leanDir).then(function (rebuild) {
+                    assert.strictEqual(rebuild.code, 0, rebuild.output);
+                    assert.strictEqual(fs.statSync(olean).mtimeMs, firstMtime,
+                        'Domain.olean should not be rewritten when Domain.lean is unchanged');
+                    fs.writeFileSync(checkPath, fail.modelModule);
+                    return runCommand(['lake', 'env', 'lean', checkPath], leanDir).then(function (second) {
+                        assert.notStrictEqual(second.code, 0);
+                        assert.match(second.output, /ExactlyOne_holds|rfl/);
+                    });
+                });
+            });
+        });
+    });
 });
+
+function runCommand(args, cwd) {
+    return new Promise(function (resolve) {
+        var proc = spawn(args[0], args.slice(1), {cwd: cwd});
+        var stdout = '';
+        var stderr = '';
+        proc.stdout.on('data', function (chunk) { stdout += chunk; });
+        proc.stderr.on('data', function (chunk) { stderr += chunk; });
+        proc.on('error', function (err) { resolve({code: 127, output: err.message}); });
+        proc.on('close', function (code) {
+            resolve({code: code, output: stderr || stdout});
+        });
+    });
+}

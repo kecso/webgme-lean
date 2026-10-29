@@ -43,9 +43,34 @@ cd lean
 lake build
 ```
 
+Model checks from the Constraint Manager use a separate `Generated` Lake library.
+Domain types and constraint defs go in `Generated/Domain.lean`; the instance goes in
+`Generated/Check.lean`. See [incremental-checking.md](./incremental-checking.md).
+For model-delta incrementality (not Lean), see [datalog-incrementality.md](./datalog-incrementality.md).
+
 ## What a check establishes
 
 `lean` elaborates the file and checks every `def` and `theorem`. A `theorem ... := rfl` holds when both sides reduce to the same value. `ExactlyOneInit counter` is not checked until a theorem states it, for example `theorem one_init : ExactlyOneInit counter = true := rfl`.
+
+## Checking vs running (what “execution” means here)
+
+Lean 4 is both a **theorem prover** and a **programming language**. Those are different modes:
+
+| Mode | How you invoke it | What happens |
+| --- | --- | --- |
+| Check / elaborate | `lake env lean File.lean` (what CheckWithLean does) | Parse, typecheck, reduce proofs. No separate “run.” Success = silence + exit 0. |
+| Interactive commands | `#eval`, `#check` in a file / editor | Elaborator evaluates an expression and prints the result in the message log. |
+| Real program | `def main : IO Unit := …` then `lean --run` or a Lake executable | Runtime executes `IO` (stdin, files, network). Can take user input. |
+
+In this project, constraint “checking” is almost entirely the first mode. The model is
+*generated into the source* as `def`s; `theorem C_holds : C checkedModel = true := rfl`
+asks the kernel to **reduce** that `Bool` during checking. That reduction *is* the
+computation — there is no second phase that loads a model and calls `main`.
+
+So today there is little “execution” in the ordinary sense: the executable story
+would be a Lean program that reads a model (JSON, etc.) at runtime and `#eval`s or
+calls the constraint functions in `IO`. That is possible in Lean 4, but it is not
+what CheckWithLean does yet.
 
 ## Reading `.cEnd`
 

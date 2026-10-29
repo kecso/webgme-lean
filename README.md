@@ -379,6 +379,8 @@ const leanCode = translateConstraintSet(constraintSet, domainDSL);
 - **[Constraint Tutorial](docs/constraint-tutorial.md)** — Complete guide to writing constraints with examples
 - **[Lean encoding](docs/lean-encoding.md)** — How a WebGME metamodel becomes the generated Lean program, including containment
 - **[Checking examples](docs/checking-examples.md)** — How to run the `.lean` examples with Lean 4.12.0
+- **[Incremental checking](docs/incremental-checking.md)** — Reuse Domain.olean when META/constraint defs are fixed
+- **[Datalog incrementality](docs/datalog-incrementality.md)** — Edit-time deltas via DDlog/FORMULA; Lean stays a typed prover, not a fact store
 - **[DSL Reference](#constraint-language)** — Quick reference for the constraint language
 
 ## AI-Powered Constraint Authoring
@@ -521,7 +523,7 @@ The Constraint Manager toolbar holds the scope, the editor actions, and validati
 
 **Validate** checks that the constraint text parses and that every concept, attribute, pointer, and set it names exists in the META.
 
-**Check with Lean** runs the `CheckWithLean` plugin. For ROOT it checks the project root. For any other scope it asks for a direct instance of that concept, shown as `name (/folder/instance)`. The plugin writes a Lean file for that instance and runs it with `lake env lean` from the `lean/` directory. Lean accepts the model when the file elaborates and each constraint theorem holds. Both plugins are loaded when the WebGME server starts.
+**Check with Lean** runs the `CheckWithLean` plugin. For ROOT it checks the project root. For any other scope it asks for a direct instance of that concept, shown as `name (/folder/instance)`. The plugin writes `lean/Generated/Domain.lean` (types and constraint defs) and `lean/Generated/Check.lean` (the instance and theorems), builds the domain module only when it changed, then runs `lake env lean` on the check module so Lake can reuse `Domain.olean`. Lean accepts the model when the check elaborates and each constraint theorem holds. See [Incremental checking](docs/incremental-checking.md). Both plugins are loaded when the WebGME server starts.
 
 Point the endpoint at vLLM, llama.cpp, or Ollama in `config/config.default.js`:
 

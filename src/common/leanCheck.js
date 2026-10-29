@@ -142,6 +142,38 @@
         return names;
     }
 
+    function collectionHosts(types, scopeType, typeName) {
+        var contained = containedNames(types, scopeType);
+        var hosts = [];
+        var host = null;
+        var chain;
+        var index;
+        if (contained[typeName]) {
+            hosts.push(typeName);
+        }
+        Object.keys(contained).forEach(function (childName) {
+            if (childName !== typeName && isSubtype(types, childName, typeName)) {
+                hosts.push(childName);
+            }
+        });
+        if (!contained[typeName]) {
+            chain = typeChain(types, typeName);
+            for (index = 1; index < chain.length; index += 1) {
+                if (contained[chain[index]]) {
+                    host = chain[index];
+                    break;
+                }
+            }
+            if (host) {
+                hosts.push(host);
+            }
+        }
+        if (!hosts.length) {
+            throw new Error(typeName + ' is not contained in ' + scopeType + '.');
+        }
+        return hosts;
+    }
+
     function collection(types, scopeType, typeName, modelName) {
         var contained = containedNames(types, scopeType);
         var parts = [];
@@ -177,6 +209,44 @@
             return parts[0];
         }
         return '(' + parts.join(' ++ ') + ')';
+    }
+
+    /**
+     * Instance binders so constraint defs elaborate in Domain.lean without the
+     * model-specific `_Contained` instances that only exist in Check.lean.
+     */
+    function containedInstanceBinders(types, scopeType, constraints) {
+        var needed = {};
+        function noteType(typeName) {
+            collectionHosts(types, scopeType, typeName).forEach(function (host) {
+                needed[host] = true;
+            });
+        }
+        function walk(expr) {
+            if (!expr || typeof expr !== 'object') {
+                return;
+            }
+            if (expr.k === 'name' && types[expr.name]) {
+                noteType(expr.name);
+            }
+            if (expr.k === 'quant' && expr.domain) {
+                noteType(expr.domain);
+            }
+            Object.keys(expr).forEach(function (key) {
+                var value = expr[key];
+                if (Array.isArray(value)) {
+                    value.forEach(walk);
+                } else if (value && typeof value === 'object') {
+                    walk(value);
+                }
+            });
+        }
+        (constraints || []).forEach(function (constraint) {
+            walk(constraint.body);
+        });
+        return Object.keys(needed).sort().map(function (host) {
+            return '[_Contained ' + leanIdent(scopeType) + ' ' + leanIdent(host) + ']';
+        }).join(' ');
     }
 
     function pointerOf(types, ownerType, name) {
@@ -598,10 +668,14 @@
         var nodes = options && options.nodes || [];
         var types = options && options.types || {};
         var rootId = options && options.rootId;
+        var domainImport = options && options.domainImport || 'Generated.Domain';
         var namespace = (domainSource.match(/^namespace\s+(\S+)/m) || [])[1] || 'Domain';
         var parsed;
-        var body = [];
+        var modelBody = [];
+        var constraintDefs = [];
+        var theorems = [];
         var env;
+        var monolithic;
 
         if (!scopeType || !types[scopeType]) {
             return fail('Lean has no structure for ' + (scopeType || 'the model') + '.');
@@ -624,33 +698,49 @@
                 });
             });
             orderNodes(nodes).forEach(function (node) {
-                body.push(emitNode(node, nodesById, types, rootId, parentOf));
-                body.push('');
+                modelBody.push(emitNode(node, nodesById, types, rootId, parentOf));
+                modelBody.push('');
             });
-            body.push(emitResolve(nodes, rootId));
-            body.push('');
-            body.push(emitContained(scopeType, types, nodes, rootId));
+            modelBody.push(emitResolve(nodes, rootId));
+            modelBody.push('');
+            modelBody.push(emitContained(scopeType, types, nodes, rootId));
             env = {model: 'checked', vars: {}};
             (parsed.constraints || []).forEach(function (constraint) {
                 var expr = translateExpr(constraint.body, env, types, scopeType);
-                body.push('def ' + leanIdent(constraint.name) + ' (checked : ' + leanIdent(scopeType) + ') : Bool :=');
-                body.push('  ' + expr);
-                body.push('theorem ' + leanIdent(constraint.name) + '_holds : ' +
+                var binders = containedInstanceBinders(types, scopeType, [constraint]);
+                constraintDefs.push('def ' + leanIdent(constraint.name) +
+                    ' (checked : ' + leanIdent(scopeType) + ')' +
+                    (binders ? ' ' + binders : '') + ' : Bool :=');
+                constraintDefs.push('  ' + expr);
+                constraintDefs.push('');
+                theorems.push('theorem ' + leanIdent(constraint.name) + '_holds : ' +
                     leanIdent(constraint.name) + ' checkedModel = true := rfl');
-                body.push('');
+                theorems.push('');
             });
             metaTheorems(domainSource, nodes, rootId).forEach(function (line) {
-                body.push(line);
+                theorems.push(line);
             });
         } catch (err) {
             return fail(err.message || String(err));
         }
 
+        monolithic = modelBody.concat(constraintDefs, theorems);
         return {
             ok: true,
             error: '',
             proved: (parsed.constraints || []).length,
-            source: domainSource.replace(/\s*$/, '') + '\n\n' + body.join('\n') + '\nend ' + namespace + '\n'
+            namespace: namespace,
+            // Types, meta rules, and constraint defs — stable when META and constraints are fixed.
+            domainModule: domainSource.replace(/\s*$/, '') + '\n\n' +
+                constraintDefs.join('\n') + '\nend ' + namespace + '\n',
+            // Instance nodes and the theorems that apply the domain to this model.
+            modelModule: 'import ' + domainImport + '\n\n' +
+                'namespace ' + namespace + '\n\n' +
+                modelBody.concat(theorems).join('\n') +
+                '\nend ' + namespace + '\n',
+            // Single-file form kept for artifacts and tests that do not use Lake modules.
+            source: domainSource.replace(/\s*$/, '') + '\n\n' +
+                monolithic.join('\n') + '\nend ' + namespace + '\n'
         };
     }
 
