@@ -46,6 +46,7 @@ lake build
 Model checks from the Constraint Manager use a separate `Generated` Lake library.
 Domain types and constraint defs go in `Generated/Domain.lean`; the instance goes in
 `Generated/Check.lean`. See [incremental-checking.md](./incremental-checking.md).
+For model-delta incrementality (not Lean), see [datalog-incrementality.md](./datalog-incrementality.md).
 
 ## What a check establishes
 

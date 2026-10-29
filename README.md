@@ -379,7 +379,8 @@ const leanCode = translateConstraintSet(constraintSet, domainDSL);
 - **[Constraint Tutorial](docs/constraint-tutorial.md)** — Complete guide to writing constraints with examples
 - **[Lean encoding](docs/lean-encoding.md)** — How a WebGME metamodel becomes the generated Lean program, including containment
 - **[Checking examples](docs/checking-examples.md)** — How to run the `.lean` examples with Lean 4.12.0
-- **[Incremental checking](docs/incremental-checking.md)** — Reuse a compiled domain when only the model instance changes
+- **[Incremental checking](docs/incremental-checking.md)** — Reuse Domain.olean when META/constraint defs are fixed
+- **[Datalog incrementality](docs/datalog-incrementality.md)** — Model-delta checking via Differential Datalog; Lean as certifier
 - **[DSL Reference](#constraint-language)** — Quick reference for the constraint language
 
 ## AI-Powered Constraint Authoring

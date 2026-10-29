@@ -1,9 +1,19 @@
 # Incremental model checking
 
-When the metamodel and constraint text stay fixed, only the model instance changes
-from one check to the next. Re-elaborating domain types and constraint definitions
-on every run is wasted work. This project splits the generated Lean program so Lake
-can reuse a compiled domain module.
+There are two different incrementality problems:
+
+1. **Domain compilation** (this page) — META and constraint *defs* are stable;
+   reuse Lean `.olean` artifacts while the instance changes.
+2. **Model deltas** — the instance changes by a few nodes; do not re-evaluate every
+   constraint from scratch. That needs a general incremental engine (Differential
+   Datalog), not Lean elaborator tricks or per-pattern JS caches. See
+   [datalog-incrementality.md](./datalog-incrementality.md).
+
+## Domain compilation reuse
+
+When the metamodel and constraint text stay fixed, re-elaborating domain types and
+constraint definitions on every run is wasted work. The generated Lean program is
+split so Lake can reuse a compiled domain module.
 
 ## What is reused
 
@@ -34,8 +44,8 @@ Those steps grow with the instance. Domain reuse mainly helps when the META/cons
 ## Practical expectations
 
 - Small models (examples, hundreds of nodes): domain reuse is a modest win; total time is dominated by Lean startup and instance elaboration.
-- Large models (tens of thousands of objects): instance elaboration and `rfl` reduction dominate. Prefer scoping checks to a subtree, fewer theorems per run, or a non-proof checker for quick feedback; keep Lean for the cases that need a kernel check.
-- Unchanged model + unchanged domain: the plugin still rewrites and rechecks `Check.lean` today. Skipping Lean when the model hash matches a prior successful run would be a further optimization.
+- Large models (tens of thousands of objects): instance elaboration and `rfl` reduction dominate on the Lean path. For edit-time incrementality on large instances, use the Datalog architecture in [datalog-incrementality.md](./datalog-incrementality.md); keep Lean for audits and certificates.
+- Unchanged model + unchanged domain: the plugin still rewrites and rechecks `Check.lean` today.
 
 ## Manual check with Lake
 
