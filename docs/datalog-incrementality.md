@@ -11,8 +11,9 @@ feed model edits as relation deltas, and let differential dataflow maintain
 derived relations (including violations) for *any* stratified Datalog-expressible
 pattern.
 
-Lean stays in the picture as a **semantic anchor / certificate checker**, not as
-the incremental runtime.
+Lean can still be the *language* of those checkers. What DDlog mainly supplies is
+the **maintenance strategy** for joins, recursion, and aggregates — not a claim
+that Bool functions are impossible in Lean.
 
 ## Prior art in this line of work
 
@@ -33,31 +34,90 @@ That is the right *engine* shape for “add a node, only pay for what the rules
 touch,” including patterns that have never been cached before: the program is
 fixed; the *data* changes; the dataflow indexes do the rest.
 
-## Why not “make Lean incremental”?
+## Can Lean itself be incremental?
 
-The current Lean encoding elaborates a concrete instance and discharges
-`theorem … := rfl`. That is a good **kernel check** of a closed fact. It is a
-poor incremental store:
+Yes — if the encoding matches the mental model of **small Bool checkers over
+facts**, not one monolithic `Model → Bool` closed under `rfl`.
 
-- There is no differential index over model facts.
-- A new constraint shape still requires a new proof obligation over the whole
-  instance (or a new ad-hoc JS shortcut).
-- Elaborating tens of thousands of node `def`s dominates even when only one
-  theorem is “affected.”
+### What works in Lean
 
-So the clever transformation is **not** “incrementalize Lean’s elaborator.” It is:
+Constraints compile to functions on *patterns* (nodes, edges, pairs, …):
+
+```lean
+def transitionHasSrc (t : Transition) : Bool := t.src.isSome
+
+def uniqueNames (a b : State) : Bool :=
+  a._id == b._id || a.name != b.name
+```
+
+A model edit then means: take the **delta facts** (the new Transition, the new
+State, …) and run only the checkers whose patterns they can inhabit.
+
+- Add Transition `t` → evaluate `transitionHasSrc t` only.
+- Add State `s` → evaluate `uniqueNames s s'` for each existing state `s'`
+  (O(|States|), not O(|States|²)).
+- `count(Init) == 1` → adjust a cached Nat, compare once.
+
+That *is* incremental, and Lean is a fine place to *define* those functions
+(and to `#eval` / prove the tiny delta obligations). Inductive predicates are
+likewise fine as *specifications* of the patterns.
+
+### What today’s encoding does instead
+
+`buildProgram` builds one giant `checkedModel`, then
+
+```lean
+theorem TransitionHasSource_holds :
+  TransitionHasSource checkedModel = true := rfl
+```
+
+Kernel reduction walks the whole instance. Adding one node still re-elaborates
+(or at least re-reduces over) the full term. No fact index, no “only this
+input.” So the *current* pipeline is not incremental — not because Lean cannot
+be, but because the obligations are whole-model.
+
+### Where DDlog still matters
+
+“Run one new input through a subset of functions” is enough for **local**
+patterns (unary guards, pairwise-with-existing, simple counts).
+
+Many constraints are **relational**:
+
+| Pattern | On insert of one edge/node | Naive “call the Bool function” |
+| --- | --- | --- |
+| Local attribute/pointer guard | One call on the new fact | Enough |
+| Pairwise uniqueness | New × existing | Enough if you write it that way |
+| Reachability / recursive Path | Many new Path facts may appear | Must *saturate*: propagate through joins until fixpoint |
+| `count` of a join/comprehension | Aggregate changes by more than ±1 of the seed | Needs incremental aggregation |
+| `not Path(u,u)` after a delete | Derived facts must be *retracted* | Needs delete propagation |
+
+Differential Datalog automates the last three: for a join,
+`Δ(R ⋈ S) = ΔR ⋈ S ∪ R ⋈ ΔS ∪ ΔR ⋈ ΔS`, with indexes so you do not rescan
+`R` and `S`. Recursion repeats that to a fixpoint. That machinery is what
+“functions defined correctly” has to grow into once patterns are no longer
+local — whether the functions are written in Lean, FORMULA, or DDlog syntax.
+
+So a Lean-native incremental design is coherent:
+
+1. Compile the dialect to Lean defs that are **fact-oriented** Bool checkers /
+   relational rules (not only `Model → Bool`).
+2. Keep an explicit fact store (arrays/maps of nodes, edges, derived Path, …).
+3. On edit, apply a **maintenance driver** that feeds delta tuples into those
+   rules (for local rules: one shot; for recursive/join rules: stratified
+   fixpoint / differential updates).
+4. Optionally ask the kernel to check only the new micro-obligations.
+
+Step 3 *is* a Datalog engine. Hosting it inside Lean, beside Lean, or as DDlog
+with Lean certificates are engineering choices. DDlog is the off-the-shelf
+driver already proven on WebGME-sized graphs in Differential-FORMULA;
+CertifyingDatalog shows Lean can still own the trust layer.
 
 ```
-constraint dialect  ──compile──►  Datalog/DDlog program
+constraint dialect  ──compile──►  fact-oriented rules (Lean defs and/or DDlog)
 model edit          ──delta───►  insert/delete facts
-DDlog               ──maintain►  Violation / derived relations
-Lean (optional)     ──certify─►  rule soundness or derivation certificates
+maintenance driver  ──update──►  derived facts + violations
+Lean kernel         ──optional►  certify delta obligations / derivations
 ```
-
-This matches the certificate pattern in
-[CertifyingDatalog](https://github.com/knowsys/CertifyingDatalog) (Lean checks
-Datalog proof trees/DAGs against a formal semantics, rather than re-deriving
-all consequences itself).
 
 ## Compilation sketch for this dialect
 
@@ -119,30 +179,36 @@ side path if needed.
 
 | Role | What Lean does | When |
 | --- | --- | --- |
-| Optional full check | Today’s `rfl` encoding of an instance | Audit, CI, small models |
-| Domain.olean reuse | Compile META + constraint defs once | META/constraints stable ([incremental-checking.md](./incremental-checking.md)) |
-| Translation trust | Prove that dialect → Datalog preserves meaning for the supported fragment | Once per language version |
-| Result certificates | Check DDlog derivation certificates (CertifyingDatalog-style) for reported violations or “no violation” proofs where feasible | After incremental runs, if a kernel guarantee is required |
+| Fact-oriented checkers | `Bool` (or relational) defs over nodes/edges/pairs — the “pattern functions” | Compiled once from the dialect; reused on every delta |
+| Delta obligations | `#eval` / tiny `rfl` theorems on *new* inputs only | After each model edit, for local rules |
+| Optional full check | Today’s whole-`Model` `rfl` encoding | Audit, CI, small models |
+| Domain.olean reuse | META + checker defs compiled once | META/constraints stable ([incremental-checking.md](./incremental-checking.md)) |
+| Translation trust | Prove dialect → rules preserves meaning | Once per language version |
+| Result certificates | Check derivation certificates (CertifyingDatalog-style) | When a kernel guarantee is required for a DDlog (or in-Lean) run |
 
-The **hot path** for interactive editing of large models is DDlog (or another
-differential Datalog engine). Lean should not be asked to rediscover
-incrementality case by case.
+The missing piece for general patterns is not “Lean vs DDlog syntax,” it is an
+explicit **maintenance driver** over a fact store. DDlog is one such driver;
+a Lean-hosted driver is possible if we invest in the same join/fixpoint
+maintenance.
 
 ## Suggested integration with webgme-lean
 
-1. **Compile** constraint text + META → `.dl` (or FORMULA, then reuse
-   `formula2ddlog`) when constraints/META change — analogous to Domain.olean.
-2. **Session** hold a long-lived DDlog worker keyed by project; on each model
-   commit/plugin check, push fact deltas from Core.
-3. **UI** read `Violation[...]` (and optional witness tuples) the way
-   CheckWithLean messages work today.
-4. **Lean** remain available as “Check with Lean” for closed proofs; optionally
-   later accept certificates from the DDlog run.
+Two viable hosts for the driver:
 
-Reusing Differential-FORMULA’s `formula2ddlog` is attractive if we emit FORMULA
-(or a close subset) from the dialect. Emitting DDlog directly from the existing
-Chevrotain AST is smaller operationally (no FORMULA/.NET) but duplicates
-translation work already done there.
+**A. DDlog worker (reuse Differential-FORMULA)**  
+1. Compile constraint text + META → `.dl` (or FORMULA → `formula2ddlog`).  
+2. Long-lived worker per project; Core diffs → fact insert/delete.  
+3. UI reads `Violation[...]`. Lean optional for certificates / full audits.
+
+**B. Lean-native fact store**  
+1. Compile dialect → fact-oriented Lean checker defs (and Domain.olean).  
+2. Keep nodes/edges/derived relations in a store the plugin updates.  
+3. On edit, run the maintenance driver; only new micro-goals hit the kernel.  
+4. Start with local+count rules; add stratified fixpoint for reachability when needed.
+
+Reusing `formula2ddlog` is attractive for (A). Emitting DDlog or Lean rules
+directly from the Chevrotain AST avoids FORMULA/.NET but duplicates translation
+work.
 
 ## What was deliberately not kept
 
