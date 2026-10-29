@@ -380,7 +380,7 @@ const leanCode = translateConstraintSet(constraintSet, domainDSL);
 - **[Lean encoding](docs/lean-encoding.md)** — How a WebGME metamodel becomes the generated Lean program, including containment
 - **[Checking examples](docs/checking-examples.md)** — How to run the `.lean` examples with Lean 4.12.0
 - **[Incremental checking](docs/incremental-checking.md)** — Reuse Domain.olean when META/constraint defs are fixed
-- **[Datalog incrementality](docs/datalog-incrementality.md)** — Model-delta checking via Differential Datalog; Lean as certifier
+- **[Datalog incrementality](docs/datalog-incrementality.md)** — Edit-time deltas via DDlog/FORMULA; Lean stays a typed prover, not a fact store
 - **[DSL Reference](#constraint-language)** — Quick reference for the constraint language
 
 ## AI-Powered Constraint Authoring
