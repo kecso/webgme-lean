@@ -2,10 +2,10 @@
 /*eslint-env node, browser*/
 
 /**
- * Generates Lean modules for a model instance and runs them with the
- * toolchain in the lean/ directory. Domain types and constraint defs are
- * written to Generated/Domain.lean and rebuilt only when that text changes,
- * so repeated checks of different instances reuse the compiled domain.
+ * Checks a model instance against constraints. Count-shaped constraints and
+ * constraints outside an edit's footprint are settled from a prior snapshot
+ * without Lean. Remaining constraints are proved with Lake modules under
+ * lean/Generated/, reusing Domain.olean when the domain text is unchanged.
  */
 
 define([
@@ -15,6 +15,7 @@ define([
     'webgme-lean/metaLanguage',
     'webgme-lean/leanFix',
     'webgme-lean/leanCheck',
+    'webgme-lean/incrementalCheck',
     'crypto',
     'fs',
     'path',
@@ -26,6 +27,7 @@ define([
     metaLanguage,
     leanFix,
     leanCheck,
+    incrementalCheck,
     crypto,
     fs,
     path,
@@ -172,11 +174,86 @@ define([
         return true;
     }
 
+    function cachePath(leanDir, project, rootId) {
+        var safeProject = String(project || 'project').replace(/[^A-Za-z0-9_-]+/g, '_');
+        var safeRoot = String(rootId || 'root').replace(/[^A-Za-z0-9_-]+/g, '_');
+        return path.join(leanDir, 'Generated', 'cache-' + safeProject + '-' + safeRoot + '.json');
+    }
+
+    function loadSnapshot(filePath) {
+        try {
+            return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        } catch (err) {
+            return null;
+        }
+    }
+
+    function saveSnapshot(filePath, snapshot) {
+        fs.mkdirSync(path.dirname(filePath), {recursive: true});
+        fs.writeFileSync(filePath, JSON.stringify(snapshot, null, 2));
+    }
+
+    function resultsFromActions(actions) {
+        var results = {};
+        (actions || []).forEach(function (action) {
+            if (typeof action.passed === 'boolean') {
+                results[action.name] = {
+                    passed: action.passed,
+                    action: action.action,
+                    kind: action.kind,
+                    detail: action.detail || ''
+                };
+            }
+        });
+        return results;
+    }
+
+    function reportPlan(plugin, node, plan, leanUsed) {
+        var reused = (plan.actions || []).filter(function (item) {
+            return item.action === 'reuse';
+        }).length;
+        var counted = (plan.actions || []).filter(function (item) {
+            return item.action === 'count';
+        }).length;
+        var rechecked = (plan.needsLean || []).length;
+        var failed = (plan.actions || []).filter(function (item) {
+            return item.passed === false;
+        });
+        if (failed.length) {
+            failed.forEach(function (item) {
+                plugin.createMessage(node, item.detail || (item.name + ' failed.'), 'error');
+            });
+        } else if (!leanUsed) {
+            plugin.createMessage(
+                node,
+                'All checks settled incrementally' +
+                    (reused || counted
+                        ? ' (' + reused + ' reused, ' + counted + ' updated from counts).'
+                        : '.'),
+                'info'
+            );
+        }
+        if (leanUsed && (reused || counted)) {
+            plugin.createMessage(
+                node,
+                'Incremental plan: ' + reused + ' reused, ' + counted +
+                    ' updated from counts, ' + rechecked + ' sent to Lean.',
+                'info'
+            );
+        }
+        (plan.actions || []).forEach(function (item) {
+            if (item.action === 'reuse' || item.action === 'count') {
+                plugin.logger.info(item.name + ': ' + item.action +
+                    (typeof item.passed === 'boolean' ? (item.passed ? ' passed' : ' failed') : ''));
+            }
+        });
+    }
+
     /**
      * Compile Domain.lean when needed, then check the model module against it.
      * Lake reuses Generated/Domain.olean when the domain text is unchanged.
      */
-    function runIncrementalCheck(program, leanDir) {
+    function runLeanModules(program, leanDir) {
         var generatedDir = path.join(leanDir, 'Generated');
         var domainPath = path.join(generatedDir, 'Domain.lean');
         var checkPath = path.join(generatedDir, 'Check.lean');
@@ -452,22 +529,61 @@ define([
                     rootType: modelType,
                     nodes: leanCheck.metamodelNodes(language)
                 });
-                program = leanCheck.buildProgram({
-                    domainSource: leanFix.generateLeanTypes(dsl),
-                    scopeType: modelType,
-                    rootId: rootPath,
-                    nodes: described,
-                    text: text,
-                    types: indexTypes(dsl.typeDefinitions)
-                });
             } catch (buildErr) {
                 callback(buildErr, self.result);
                 return;
             }
-            function runFiles() {
+
+            var typeIndex = indexTypes(dsl.typeDefinitions);
+            var constraintsHash = sha256(text);
+            var snapshotFile = cachePath(leanDir, projectName(self), rootPath);
+            var previous = loadSnapshot(snapshotFile);
+            if (previous && previous.constraintsHash !== constraintsHash) {
+                previous = null;
+            }
+            var plan = incrementalCheck.planCheck({
+                text: text,
+                types: typeIndex,
+                scopeType: modelType,
+                nodes: described,
+                previousNodes: previous && previous.nodes,
+                previousResults: previous && previous.results,
+                previousCounts: previous && previous.counts
+            });
+            var metaFocus = null;
+            var buildOptions = {
+                domainSource: leanFix.generateLeanTypes(dsl),
+                scopeType: modelType,
+                rootId: rootPath,
+                nodes: described,
+                text: text,
+                types: typeIndex
+            };
+            if (plan.ok && plan.diff && !plan.diff.empty) {
+                metaFocus = plan.diff.added.concat(plan.diff.changed.map(function (entry) {
+                    return entry.after;
+                }));
+                if (rootRecord) {
+                    metaFocus.push(rootRecord);
+                }
+            }
+            if (plan.ok) {
+                buildOptions.onlyProve = plan.needsLean;
+                buildOptions.metaNodes = plan.needsLean.length ? (metaFocus || described) : [];
+            }
+
+            try {
+                program = leanCheck.buildProgram(buildOptions);
+            } catch (programErr) {
+                callback(programErr, self.result);
+                return;
+            }
+
+            function runFiles(extra) {
                 var files = {
                     'constraints.txt': text,
-                    'model.json': JSON.stringify(described, null, 2)
+                    'model.json': JSON.stringify(described, null, 2),
+                    'incremental-plan.json': JSON.stringify(plan, null, 2)
                 };
                 if (program && program.domainModule) {
                     files['Domain.lean'] = program.domainModule;
@@ -478,11 +594,14 @@ define([
                 if (program && program.source) {
                     files['model.lean'] = program.source;
                 }
+                Object.keys(extra || {}).forEach(function (key) {
+                    files[key] = extra[key];
+                });
                 return files;
             }
 
-            function publish(logText, report) {
-                var files = runFiles();
+            function publish(logText, extraFiles, report) {
+                var files = runFiles(extraFiles);
                 files['lean.log'] = logText;
                 saveRunRecord(self, files).then(function () {
                     report();
@@ -501,17 +620,43 @@ define([
                 });
             }
 
+            function persistMerged(actions) {
+                saveSnapshot(snapshotFile, incrementalCheck.snapshotFrom({
+                    rootId: rootPath,
+                    constraintsHash: constraintsHash,
+                    nodes: described,
+                    counts: plan.counts,
+                    results: resultsFromActions(actions)
+                }));
+            }
+
             if (!program.ok) {
-                publish(leanLog({note: program.error}), function () {
+                publish(leanLog({note: program.error}), null, function () {
                     self.createMessage(self.activeNode, program.error, 'error');
                 });
                 return;
             }
 
-            runIncrementalCheck(program, leanDir).then(function (lean) {
+            if (plan.ok && plan.needsLean.length === 0) {
+                persistMerged(plan.actions);
+                publish(leanLog({
+                    code: 0,
+                    command: '(incremental; Lean not required)',
+                    cwd: leanDir,
+                    note: 'All constraints were settled from counts or the prior snapshot.',
+                    stdout: '',
+                    stderr: ''
+                }), null, function () {
+                    reportPlan(self, self.activeNode, plan, false);
+                });
+                return;
+            }
+
+            runLeanModules(program, leanDir).then(function (lean) {
                 var output = (lean.stderr || '') + '\n' + (lean.stdout || '');
                 var diagnosis;
-                // Diagnose against the model module: theorem lines and Lean errors live there.
+                var leanResults = [];
+                var merged;
                 diagnosis = leanCheck.diagnoseRun({
                     source: program.modelModule,
                     log: output,
@@ -520,6 +665,31 @@ define([
                     rootId: rootPath,
                     ok: lean.code === 0
                 });
+                (diagnosis.proved || []).forEach(function (name) {
+                    leanResults.push({name: name, passed: true, detail: name + ' holds.'});
+                });
+                (diagnosis.failures || []).forEach(function (failure) {
+                    if (failure.kind === 'constraint' && failure.name) {
+                        leanResults.push({
+                            name: failure.name,
+                            passed: false,
+                            detail: failure.detail
+                        });
+                    }
+                });
+                merged = incrementalCheck.mergeResults(plan, leanResults);
+                if (lean.code === 0) {
+                    (plan.needsLean || []).forEach(function (name) {
+                        var found = leanResults.some(function (item) {
+                            return item.name === name;
+                        });
+                        if (!found) {
+                            leanResults.push({name: name, passed: true});
+                        }
+                    });
+                    merged = incrementalCheck.mergeResults(plan, leanResults);
+                    persistMerged(merged);
+                }
                 function reportMessages(summary) {
                     if (lean.code === 127) {
                         self.createMessage(
@@ -529,6 +699,7 @@ define([
                         );
                         return;
                     }
+                    reportPlan(self, self.activeNode, {actions: merged, needsLean: plan.needsLean}, true);
                     if (summary) {
                         self.createMessage(self.activeNode, summary, lean.code === 0 ? 'info' : 'error');
                     } else if (lean.code === 0) {
@@ -550,11 +721,11 @@ define([
                         command: lean.command,
                         cwd: leanDir,
                         note: lean.domainRebuilt
-                            ? 'Domain.lean was rebuilt; Check.lean was checked against it.'
-                            : 'Domain.olean was reused; only Check.lean was elaborated.',
+                            ? 'Domain.lean was rebuilt; Check.lean proved the constraints that needed a full check.'
+                            : 'Domain.olean was reused; Check.lean proved only the constraints affected by the edit.',
                         stdout: lean.stdout,
                         stderr: lean.stderr
-                    }), function () {
+                    }), null, function () {
                         reportMessages(summary);
                     });
                 });
